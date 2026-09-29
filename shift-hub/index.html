@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!--
+    Privacy lock: this page may only load its own files, and may only talk to
+    a local AI server on this computer (Ollama). The browser blocks every other
+    network request, so nothing typed here can be sent to the internet.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src http://localhost:11434 http://127.0.0.1:11434; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>AFO Shift Hub</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <nav class="nav" aria-label="Sections">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">AF</span>
+        <span class="brand-text">Shift Hub<small>Orchard · offline</small></span>
+      </div>
+      <button class="nav-btn" data-tab="today">Today</button>
+      <button class="nav-btn" data-tab="followups">Follow-ups <span class="count" id="fu-count" hidden></span></button>
+      <button class="nav-btn" data-tab="calc">Calculators</button>
+      <button class="nav-btn" data-tab="scripts">Scripts</button>
+      <button class="nav-btn" data-tab="onboarding">Onboarding</button>
+      <button class="nav-btn" data-tab="ask">Ask &amp; Redact</button>
+      <button class="nav-btn" data-tab="settings">Settings</button>
+      <p class="nav-foot">Data stays on this computer.</p>
+    </nav>
+    <main id="main" tabindex="-1"></main>
+  </div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
