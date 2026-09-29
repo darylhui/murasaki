@@ -224,3 +224,36 @@ details > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 /* Spacing hooks (inline styles are blocked by the page's security policy) */
 [style-top] { margin-top: 12px; }
 [style-gap] { margin-top: 16px; }
+
+/* Follow-ups list */
+.fu-list { list-style: none; margin: 0; padding: 0; }
+.fu {
+  display: grid; grid-template-columns: 1fr auto; gap: 6px 16px;
+  padding: 12px 4px 12px 12px; border-top: 1px solid var(--line);
+}
+.fu:first-child { border-top: 0; }
+.fu.is-due { box-shadow: inset 3px 0 0 var(--bad); }
+.fu-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.fu-due { font-size: 13px; text-align: right; white-space: nowrap; }
+.fu-actions { grid-column: 1 / -1; }
+.fu-actions select.reason { width: auto; min-height: 30px; font-size: 13px; padding: 3px 8px; }
+
+.lg { font-size: 18px; }
+input.w-auto { width: auto; min-width: 200px; }
+code { font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+td input[type=text], td select { min-height: 32px; font-size: 13px; padding: 4px 8px; }
+td select { width: auto; }
+a.btn { text-decoration: none; color: inherit; }
+a.btn-primary { color: var(--accent-text); }
+.page-head .field select { min-width: 170px; }
+.page-head > div:first-child { flex: 1 1 280px; min-width: 0; }
+.seg { flex-wrap: wrap; max-width: 100%; }
+.card-head { flex-wrap: wrap; }
+.fu-main .row, .fu-actions { min-width: 0; }
+@media (max-width: 760px) {
+  .fu { grid-template-columns: 1fr; }
+  .fu-due { text-align: left; }
+  input.w-auto { width: 100%; min-width: 0; }
+}
+.grid > * { min-width: 0; }
+.next-up .big { white-space: nowrap; }

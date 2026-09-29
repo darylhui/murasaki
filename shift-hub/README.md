@@ -15,9 +15,10 @@ Bookmark the page so the next shift can find it.
 | Tab | What it does | Handbook section |
 |---|---|---|
 | **Today** | Opening, mid-day and closing checklists with timed cleanliness checks (10AM, 5PM, 7PM to 9PM, 10PM) and a countdown to the next one. Adds notes when something couldn't be done and copies a handover report. | 11, onboarding plan |
-| **Follow-ups** | A reminder queue for leads, using initials only. Works out the next follow-up date from the enquiry, tour or trial date and flags anything due. The DSR is still where every lead is recorded. | 4.4, 4.6 |
+| **Follow-ups** | Every walk-in sign-up, trial, enquiry and new member, each on its own journey: trial reminder → record the outcome (signed, didn't sign, came with friends, no-show) → the right follow-ups, each with the message ready to copy. New members get a welcome and Google review ask, then a PT offer and a referral ask. Tallies trial conversion and why people didn't sign each month. The DSR is still where every lead is recorded. | 4.4, 4.6 |
+| **Payments** | The monthly dues chase. Paste the yellow members (name, phone, amount) from Membr or a spreadsheet. The hub counts down to the 8th at 00:00, gives you one member at a time with the reminder already written (/DuesReminder, or /SecondDeduction on the 7th), opens it in WhatsApp and marks them as sent. Track Reminded, Promised and Paid, and copy a summary for the EOD report. | 7.4, 10 |
 | **Calculators** | Freeze fee, cancellation prorata and quick quotes (including Duo/Trio bundles). Drafts the freeze or cancellation email for you to post in Discord for vetting. | 7.1, 7.2, 8.1 |
-| **Scripts** | All WhatsApp shortcuts, searchable, with your name filled in. One click to copy. | 7, 13 |
+| **Scripts** | Every WhatsApp script, grouped by category, with your name filled in. Edit any of them or add your own. Mark a script as a promotion with start and end dates: it appears on the start date and moves to Expired after the end date. Export the scripts to load them on another computer. | 7, 8, 13 |
 | **Onboarding** | Tracks each new staff member through the 2-week plan (shift 1 to shift 15). Each topic comes with a question to ask the NotebookLM notebook for self-study. | Onboarding plan |
 | **Ask & Redact** | **Redact:** paste a member's message and get a version with card numbers, NRIC, phone numbers, emails, dates and addresses replaced by placeholders, safe to paste into NotebookLM or any cloud AI. **Private AI:** optional, answers handbook questions using an AI model that runs on this computer (see below). | 1 ("never enter member personal data into any AI tool") |
 
@@ -29,7 +30,8 @@ Nowhere. Everything you type is saved in this browser on this computer (localSto
 
 * The page has a security policy that stops the browser from sending anything to the internet. The only address it's allowed to contact is a local AI server on the same computer (`localhost:11434`).
 * No fonts, scripts or images are loaded from the web.
-* Leads use initials only, and the "looking for" note is blocked if it contains personal details.
+* Follow-ups use a first name or initials only, and the "looking for" note is blocked if it contains personal details.
+* The Payments tab keeps member names, phone numbers and amounts, which is why it lives here and not online. **Open in WhatsApp** hands the message to WhatsApp, the same as typing it yourself. Use **Settings → Delete old data** to clear payment lists older than two months.
 * The private AI refuses questions that contain NRIC, card numbers, phone numbers and similar, and offers to replace them.
 
 Use **Settings → Export backup** now and then. Clearing the browser's data wipes the hub.
@@ -43,9 +45,13 @@ Use **Settings → Export backup** now and then. Clearing the browser's data wip
 
 An 8B model needs about 8 GB of free RAM and answers in a few seconds to a minute, depending on the computer. It's slower and less accurate than NotebookLM, so treat it as the option for questions that involve member situations. Always check fees and dates against the handbook.
 
+## New draft scripts
+
+The hub adds some messages the handbook doesn't have yet. They show a **draft** badge until someone edits and saves them: /DuesReminder, /TrialReminder, /TrialNoSign, /TrialFriends, /Reengage, /WelcomeReview, /PTOffer and /ReferFriend. Ask the manager to approve the wording (and add the Google review link to /WelcomeReview).
+
 ## Editing the content
 
-All checklists, scripts, rates and onboarding steps live in `data.js`. Open it in Notepad, change the text, save and refresh the page. For example, once the manager confirms staff hours, fix the `[staff hours]` placeholder in the `/Changecard` script.
+Scripts are edited in the Scripts tab. Checklists, rates, follow-up journeys (the steps and their timings), the dues dates and onboarding steps live in `data.js`. Open it in Notepad, change the text, save and refresh the page. For example, once the manager confirms staff hours, fix the `[staff hours]` placeholder in the `/Changecard` script.
 
 ## Files
 
