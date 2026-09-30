@@ -94,7 +94,8 @@ window.AFO = {
 
   // Monthly dues chase. Payments are collected on the 1st at 00:00; members
   // who haven't paid (yellow members) are chased until the 8th at 00:00.
-  // EZpay makes a second deduction attempt on the night of the 7th.
+  // EZpay makes a second deduction attempt at 00:00 on the 8th; if that fails
+  // the late payment fee is added.
   dues: { collectDay: 1, secondDeductionDay: 7, deadlineDay: 8 },
 
   // Customer journeys for the Prospect & Trial tab. Each step is due `d` days after

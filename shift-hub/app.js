@@ -590,7 +590,7 @@
 
   // ================= PAYMENTS (monthly dues chase) =================
   // Payments are collected on the 1st at 00:00. Members who haven't paid are
-  // chased until the 8th at 00:00; EZpay retries on the night of the 7th.
+  // chased until the 8th at 00:00, when EZpay makes its second deduction.
   const DUES_STATUS = [
     ["todo", "Not contacted"], ["sent", "Reminded"], ["second", "7th reminder sent"],
     ["promised", "Promised to pay"], ["paid", "Paid"], ["unreachable", "No reply / other"],
@@ -673,11 +673,11 @@
     const months = [...new Set([ym(new Date()), ...Object.keys(S.dues)])].sort().reverse();
 
     let phaseHtml;
-    if (ph.closed) phaseHtml = `<div class="notice">Chase window closed on ${longDate(addDays(ph.deadline, -1))} at midnight. Anyone still unpaid has had the $${D.fees.latePayment} late fee added.</div>`;
+    if (ph.closed) phaseHtml = `<div class="notice">EZpay's second deduction ran on ${longDate(ph.deadline)} at 00:00. If it failed for anyone still unpaid here, they now also owe the $${D.fees.latePayment} late payment fee. Mark members Paid as their payments come in.</div>`;
     else {
       const h = Math.floor(ph.msLeft / 36e5), d = Math.floor(h / 24);
       phaseHtml = `<div class="next-up"><span class="big">${d ? `${d}d ${h % 24}h` : `${h}h`}</span><div><b>left to chase before ${D.dues.deadlineDay} ${monthName(m)}, 00:00</b>
-        <p class="small muted">${ph.isSecondDay ? `Today is the ${D.dues.secondDeductionDay}th: send <b>/SecondDeduction</b> to everyone unpaid. EZpay retries tonight.` : `Send <b>/DuesReminder</b> to everyone not yet contacted. On the ${D.dues.secondDeductionDay}th, send /SecondDeduction.`}</p></div></div>`;
+        <p class="small muted">${ph.isSecondDay ? `Today is the ${D.dues.secondDeductionDay}th: send <b>/SecondDeduction</b> to everyone unpaid. EZpay deducts again at 00:00 tonight, and adds the late fee if that fails.` : `Send <b>/DuesReminder</b> to everyone not yet contacted. On the ${D.dues.secondDeductionDay}th, send /SecondDeduction.`}</p></div></div>`;
     }
 
     let nextHtml = `<div class="empty">${list.length ? (ph.isSecondDay ? "Everyone unpaid has had the 7th reminder." : "Everyone has been contacted.") : "Paste this month's yellow members below to start."}</div>`;
@@ -1192,7 +1192,7 @@ Should your circumstances change, we would be delighted to welcome you back in t
     k.push("Shift checklists:\n" + D.shifts.map((s) => `${s.label}: ` + s.items.map((i) => i.text + (i.due ? ` (by ${i.due})` : "")).join("; ")).join("\n"));
     k.push("Cleanliness standard: " + D.cleanStandard.join("; ") + ".");
     k.push("Follow-up journeys (day counted from the anchor date):\n" + D.journeys.map((j) => `${j.label} (from ${j.anchor}): ` + j.steps.map((s) => `day ${s.d}: ${s.action}${s.script ? " (" + s.script + ")" : ""}`).join("; ")).join("\n"));
-    k.push(`Monthly dues: payments are collected on the ${D.dues.collectDay}st at 00:00. Unpaid (yellow) members are chased until the ${D.dues.deadlineDay}th at 00:00. EZpay retries on the night of the ${D.dues.secondDeductionDay}th; if that fails a $${D.fees.latePayment} late fee is added.`);
+    k.push(`Monthly dues: payments are collected on the ${D.dues.collectDay}st at 00:00. Unpaid (yellow) members are chased until the ${D.dues.deadlineDay}th at 00:00. EZpay makes a second deduction at 00:00 on the ${D.dues.deadlineDay}th; if that fails a $${D.fees.latePayment} late fee is added.`);
     k.push("WhatsApp scripts in use today:\n" + S.scripts.filter((s) => scriptStatus(s).id === "active").map((s) => `${s.key} (${s.cat}${s.type === "promo" && s.end ? ", promotion until " + s.end : ""}) — ${s.when}\n${s.text}`).join("\n\n"));
     return k.join("\n\n");
   }
