@@ -233,8 +233,12 @@
         l.step = (l.done || []).length; l.name = l.who || "?"; l.history = [];
         ["rule", "done", "date", "who"].forEach((k) => delete l[k]);
       }
-      if (l.v !== 3) {
-        l.v = 3;
+      if (l.v === 3) {
+        l.v = 4;
+        l.remarks = (l.remarks || "").replace(/Came for trial (\d{1,2}\/\d{1,2}) \d{1,2}:\d{2}[ap]m(?:–\d{1,2}:\d{2}[ap]m \(\d+ min\))?/g, "Came for trial $1");
+      }
+      if (!l.v) {
+        l.v = 4;
         l.enquiryDate = l.enquiryDate || l.created || l.anchor || todayStr();
         l.remarks = l.remarks ?? (l.interest ? "Looking for: " + l.interest : "");
         delete l.interest;
@@ -283,6 +287,17 @@
     if (m[3] === "am" && h === 12) h = 0;
     return h < 24 ? `${pad(h)}:${m[2] || "00"}` : "";
   }
+  // Add a tag to remarks, or take it out again if it's already there.
+  function toggleTag(remarks, tag) {
+    const parts = (remarks || "").split(/\s*;\s*/).filter(Boolean);
+    const i = parts.findIndex((p) => p.toLowerCase() === tag.toLowerCase());
+    if (i >= 0) parts.splice(i, 1); else parts.push(tag);
+    return parts.join("; ");
+  }
+  const hasTag = (remarks, tag) => (remarks || "").split(/\s*;\s*/).some((p) => p.toLowerCase() === tag.toLowerCase());
+  const tagChips = (remarks, act, id = "") => D.remarkTags.map((g) => `<div class="tag-group"><span class="small muted">${esc(g.group)}</span>
+    ${g.tags.map((t) => `<button class="tag" aria-pressed="${hasTag(remarks, t)}" data-act="${act}" data-id="${id}" data-tag="${esc(t)}">${esc(t.replace(/^Asked about /, ""))}</button>`).join("")}</div>`).join("");
+
   const touch = (l) => { l.updatedAt = Date.now(); };
   function addRemark(l, text) { l.remarks = (l.remarks ? l.remarks.trim().replace(/[;.]$/, "") + "; " : "") + text; touch(l); }
   const time12 = (d) => { let h = d.getHours(); const m = pad(d.getMinutes()); const ap = h < 12 ? "am" : "pm"; h = h % 12 || 12; return `${h}:${m}${ap}`; };
@@ -300,21 +315,15 @@
     if (l.stage !== "trial") startJourney(l, "trial", l.trialDate, "Came for trial");
     l.anchor = l.trialDate;
     l.step = journey("trial").steps.findIndex((s) => s.outcome);
-    l.trialRemark = `Came for trial ${dm(todayStr())} ${time12(now)}`;
-    addRemark(l, l.trialRemark);
+    const remark = `Came for trial ${dm(todayStr())}`;
+    if (!(l.remarks || "").includes(remark)) addRemark(l, remark);
   }
-  function checkOut(l) {
-    const now = new Date();
-    l.checkOut = now.getTime();
-    const mins = Math.round((l.checkOut - l.checkIn) / 60000);
-    const full = `${l.trialRemark}–${time12(now)} (${mins} min)`;
-    l.remarks = l.trialRemark && l.remarks.includes(l.trialRemark) ? l.remarks.replace(l.trialRemark, full) : (l.remarks ? l.remarks + "; " : "") + full;
-    l.trialRemark = full; touch(l);
-  }
+  function checkOut(l) { l.checkOut = Date.now(); touch(l); }
   function recordTrial(l, outcome) {
     if (inGym(l)) checkOut(l);
     l.trialOutcome = outcome; l.trialDate = l.trialDate || l.anchor; l.outcomeDate = todayStr();
-    const text = { signed: "Signed", nosign: "Didn't sign", friends: "Came with friends, not keen", noshow: "No-show" }[outcome];
+    const text = { signed: "Signed", nosign: "Didn't sign", friends: "Didn't sign", noshow: "No-show" }[outcome];
+    if (outcome === "friends" && !hasTag(l.remarks, "Came with friends")) addRemark(l, "Came with friends");
     addRemark(l, text);
     if (outcome === "signed") startJourney(l, "member", todayStr(), "Signed after trial");
     if (outcome === "nosign") startJourney(l, "nosign", l.trialDate, text);
@@ -380,11 +389,13 @@
     if (mode === "gym") {
       const mins = Math.round((Date.now() - l.checkIn) / 60000);
       body = `<p class="gym-time"><span class="live-dot" aria-hidden="true"></span>In since ${time12(new Date(l.checkIn))} · <b>${mins} min</b></p>
-        <label class="field">Notes from your chat (saved to Remarks)<textarea rows="3" data-remarks="${l.id}" placeholder="What are they looking for? What's stopping them?">${esc(l.remarks)}</textarea></label>`;
+        <label class="field">Notes from your chat (saved to Remarks)<textarea rows="3" data-remarks="${l.id}" placeholder="What are they looking for? What's stopping them?">${esc(l.remarks)}</textarea></label>
+        <div class="tags">${tagChips(l.remarks, "lead-tag", l.id)}</div>`;
       acts = [`<button class="btn btn-primary" data-act="lead-trial" data-o="signed" data-id="${l.id}">Signed up</button>`,
         `<button class="btn" data-act="lead-checkout" data-id="${l.id}">Check out</button>`];
     } else if (mode === "outcome") {
-      body = `<p class="small muted">${esc(l.trialRemark || "Trial finished")}. How did it go?</p>`;
+      const mins = l.checkOut ? Math.round((l.checkOut - l.checkIn) / 60000) : 0;
+      body = `<p class="small muted">Trial finished${mins ? ` · ${time12(new Date(l.checkIn))}–${time12(new Date(l.checkOut))}` : ""}. How did it go?</p>`;
       acts = [["signed", "Signed", "btn-primary"], ["nosign", "Didn't sign", ""], ["friends", "With friends, not keen", ""]]
         .map(([o, t, c]) => `<button class="btn btn-sm ${c}" data-act="lead-trial" data-o="${o}" data-id="${l.id}">${t}</button>`);
     } else if (mode === "arriving") {
@@ -516,7 +527,7 @@
     const preview = { ...d, remarks: d.remarks };
     return `<section class="card editor" id="lead-editor">
       <div class="card-head"><h2>${isNew ? "New prospect" : "Edit " + esc(d.name)}</h2><button class="btn btn-sm btn-ghost" data-act="ld-cancel" aria-label="Close">✕</button></div>
-      ${isNew ? `<div class="type-pick" role="radiogroup" aria-label="Who are they?">${D.customerTypes.map((t) => `<button role="radio" aria-checked="${t.id === type.id}" data-act="ld-type" data-id="${t.id}">${esc(t.label)}</button>`).join("")}</div>` : ""}
+      ${isNew ? `<div class="type-pick" role="radiogroup" aria-label="How did they come in?">${D.customerTypes.map((t) => `<button role="radio" aria-checked="${t.id === type.id}" data-act="ld-type" data-id="${t.id}">${esc(t.label)}</button>`).join("")}</div>` : ""}
       <div class="fields" style-top>
         ${f("name", "Name", "text", 'autocomplete="off" maxlength="60"')}
         ${f("phone", "Contact number", "tel", 'autocomplete="off" placeholder="9123 4567"')}
@@ -527,7 +538,8 @@
         ${!isNew ? f("followedUp", "Followed up", "date") : ""}
         ${type.journey !== "member" || !isNew ? `<label class="field">Category<select data-ld="cat">${["HOT", "WARM", "COLD"].map((c) => `<option ${d.cat === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>` : ""}
       </div>
-      <label class="field" style-top>Remarks<textarea data-ld="remarks" rows="2" placeholder="What they're looking for, what you talked about">${esc(d.remarks || "")}</textarea></label>
+      <div class="tags" style-top>${tagChips(d.remarks, "ld-tag")}</div>
+      <label class="field" style-top>Remarks<textarea data-ld="remarks" rows="2" placeholder="Tap the tags above, or type anything else">${esc(d.remarks || "")}</textarea></label>
       <div class="row" style-top><button class="btn btn-primary" data-act="ld-save">${isNew ? (type.checkIn ? "Add and check in" : "Add") : "Save"}</button>
         <button class="btn" data-act="ld-cancel">Cancel</button><span class="small overdue" id="ld-msg"></span></div>
       <details class="small" style-top><summary>Preview the sheet row</summary><div class="table-wrap"><table class="sheet-preview"><thead><tr>${D.sheet.columns.map((c) => `<th>${esc(c.label)}</th>`).join("")}</tr></thead>
@@ -562,7 +574,7 @@
       S.ui.leadDraft = null; save(); render(); toast("Saved"); return;
     }
     const type = D.customerTypes.find((t) => t.id === d.type);
-    const l = { id: uid(), v: 3, type: type.id, created: todayStr(), history: [], followedUp: "" };
+    const l = { id: uid(), v: 4, type: type.id, created: todayStr(), history: [], followedUp: "" };
     fields.forEach((k) => { if (k in d) l[k] = d[k]; });
     if (!type.trial && !type.checkIn) { l.trialDate = ""; l.trialTime = ""; }
     const anchor = { enquiry: l.enquiryDate, trial: l.trialDate || todayStr(), nosign: l.trialDate, friends: l.trialDate, member: type.id === "trial-signed" ? (l.trialDate || todayStr()) : l.enquiryDate }[type.journey] || todayStr();
@@ -1264,6 +1276,16 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
       case "lead-new": S.ui.leadDraft = newLeadDraft(); save(); render(); document.querySelector('[data-ld="name"]')?.focus(); break;
       case "ld-type": { const keep = S.ui.leadDraft; S.ui.leadDraft = Object.assign(newLeadDraft(id), { name: keep.name, phone: keep.phone, remarks: keep.remarks, scheduler: keep.scheduler || S.settings.name }); save(); render(); break; }
       case "ld-save": saveLead(); break;
+      case "ld-tag": {
+        const d = S.ui.leadDraft; d.remarks = toggleTag(d.remarks, b.dataset.tag); save();
+        b.setAttribute("aria-pressed", hasTag(d.remarks, b.dataset.tag));
+        document.querySelector('[data-ld="remarks"]').value = d.remarks; updateLeadPreview(); break;
+      }
+      case "lead-tag": {
+        const l = S.leads.find((x) => x.id === id); l.remarks = toggleTag(l.remarks, b.dataset.tag); touch(l); save();
+        b.setAttribute("aria-pressed", hasTag(l.remarks, b.dataset.tag));
+        const ta = document.querySelector(`[data-remarks="${id}"]`); if (ta) ta.value = l.remarks; break;
+      }
       case "ld-cancel": S.ui.leadDraft = null; save(); render(); break;
       case "lead-edit": { const l = S.leads.find((x) => x.id === id); S.ui.leadDraft = { id: l.id, type: l.type, name: l.name, phone: l.phone, enquiryDate: l.enquiryDate, channel: l.channel, trialDate: l.trialDate || "", trialTime: l.trialTime || "", scheduler: l.scheduler || "", followedUp: l.followedUp || "", cat: l.cat || "WARM", remarks: l.remarks || "" }; save(); render(); window.scrollTo(0, 0); break; }
       case "lead-step": { const l = S.leads.find((x) => x.id === id); const n = leadNext(l); if (n) { l.history.push({ d: todayStr(), t: n.action }); l.step++; l.followedUp = todayStr(); touch(l); } save(); render(); break; }

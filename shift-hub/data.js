@@ -144,17 +144,20 @@ window.AFO = {
     },
   ],
 
-  // The customer types staff pick when adding someone. Each starts a journey.
-  // `trial: true` shows the trial date and time fields. `checkIn: true` checks
-  // them in straight away.
+  // How someone first comes in. Each starts a journey. `trial: true` shows the
+  // trial date and time fields; `checkIn: true` checks them in straight away.
+  // Everything else about them goes in Remarks (see remarkTags).
   customerTypes: [
-    { id: "trial-booked", label: "Booked a trial (WhatsApp or website)", journey: "trial", source: "WhatsApp", trial: true },
+    { id: "enquiry", label: "Enquiry", journey: "enquiry", source: "WhatsApp" },
+    { id: "trial-booked", label: "Trial booked", journey: "trial", source: "WhatsApp", trial: true },
     { id: "walkin-trial", label: "Walk-in, trying the gym now", journey: "trial", source: "Walk-in", checkIn: true },
-    { id: "enquiry", label: "Enquiry, no trial yet", journey: "enquiry", source: "WhatsApp" },
-    { id: "walkin-signed", label: "Walked in and signed up", journey: "member", source: "Walk-in" },
-    { id: "trial-signed", label: "Signed after a trial", journey: "member", source: "WhatsApp", trial: true },
-    { id: "trial-nosign", label: "Trialled, didn't sign", journey: "nosign", source: "WhatsApp", trial: true },
-    { id: "trial-friends", label: "Trialled with friends, not keen", journey: "friends", source: "WhatsApp", trial: true },
+  ],
+
+  // One-tap tags on the prospect form and the in-gym card. Tapping one adds
+  // the text to Remarks (tap again to remove it).
+  remarkTags: [
+    { group: "Asked about", tags: ["Asked about rates", "Asked about promotions", "Asked about free trial", "Asked about facilities"] },
+    { group: "About them", tags: ["Came with friends", "Comparing other gyms", "Student / senior", "Beginner", "Interested in PT", "Trains evenings", "Trains weekends"] },
   ],
 
   // The online Prospect & Trial sheet. "Copy row" puts these columns in this

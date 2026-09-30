@@ -333,3 +333,15 @@ details > summary { padding: 2px 0; }
 }
 .lead header { flex-wrap: wrap; }
 .sheet-btn { white-space: nowrap; }
+
+/* Remark tags */
+.tags { display: flex; flex-direction: column; gap: 6px; }
+.tag-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tag-group > span { min-width: 78px; }
+.tag {
+  min-height: 30px; padding: 3px 11px; border-radius: 99px; cursor: pointer; font-size: 13px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--text);
+}
+.tag:hover { border-color: var(--accent); }
+.tag[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.tag[aria-pressed="true"]::before { content: "✓ "; }
