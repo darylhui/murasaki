@@ -171,6 +171,7 @@
         <section class="card"><h2>Progress</h2>
           <div class="stats"><div class="stat"><b>${doneCount}/${shift.items.length}</b><span>${esc(shift.label)} tasks done</span></div>
           <div class="stat"><b>${dueFollowups().length}</b><span>follow-ups due</span></div>
+          ${S.leads.some(inGym) ? `<div class="stat"><b>${S.leads.filter(inGym).length}</b><span>trials in the gym</span></div>` : ""}
           ${S.dues[ym(new Date())] && new Date().getDate() < D.dues.deadlineDay ? `<div class="stat"><b>${duesStats(duesList(ym(new Date()))).out}</b><span>members still to pay</span></div>` : ""}</div>
           <progress max="${shift.items.length}" value="${doneCount}" aria-label="Shift progress"></progress>
         </section>
@@ -204,6 +205,10 @@
     const noted = shift.items.filter((i) => d.done[i.id] && d.notes[i.id]);
     if (noted.length) lines.push("Notes:", ...noted.map((i) => `- ${i.text}: ${d.notes[i.id]}`));
     const due = dueFollowups();
+    const gym = S.leads.filter(inGym);
+    if (gym.length) lines.push("", "Trials still in the gym:", ...gym.map((l) => `- ${initials(l.name)}, in since ${time12(new Date(l.checkIn))}`));
+    const notIn = unlogged().length;
+    if (notIn) lines.push(`Prospect & Trial sheet: ${notIn} row${notIn > 1 ? "s" : ""} not copied in yet`);
     if (due.length) lines.push("", `Follow-ups due: ${due.length}`, ...due.map(({ l, n }) => `- ${initials(l.name)} (${l.channel}): ${n.action}`));
     const cur = S.dues[ym(new Date())];
     if (cur && cur.members.length && new Date().getDate() < D.dues.deadlineDay) { const st = duesStats(cur.members); lines.push("", `Dues: ${st.paid}/${st.total} paid, ${st.out} outstanding, ${st.todo} not contacted yet`); }
@@ -211,20 +216,32 @@
     return lines.join("\n");
   }
 
-  // ================= FOLLOW-UPS =================
-  // Each lead follows a journey (data.js → journeys). `anchor` is the date the
-  // journey counts from and `step` is the index of the next step to do.
+  // ================= PROSPECT & TRIAL =================
+  // Each person follows a journey (data.js → journeys). `anchor` is the date
+  // the journey counts from and `step` is the index of the next step to do.
+  // Full names and numbers are kept because they go into the online Prospect &
+  // Trial sheet; they stay in this browser otherwise.
   const journey = (id) => D.journeys.find((j) => j.id === id) || D.journeys[0];
   const CHANNELS = ["Walk-in", "WhatsApp", "Website", "Instagram / FB", "Email", "Phone", "Referral"];
+  const TRIAL_STAGES = ["trial", "nosign", "friends"];
 
   function migrateLeads() {
-    // Leads saved by the first version used rule/done/date/who.
     const map = { enquiry: "enquiry", tour: "nosign", trial: "nosign" };
     S.leads.forEach((l) => {
-      if (l.stage) return;
-      l.stage = map[l.rule] || "enquiry"; l.anchor = l.date || todayStr();
-      l.step = (l.done || []).length; l.name = l.who || "?"; l.history = [];
-      ["rule", "done", "date", "who"].forEach((k) => delete l[k]);
+      if (!l.stage) { // saved by the first version
+        l.stage = map[l.rule] || "enquiry"; l.anchor = l.date || todayStr();
+        l.step = (l.done || []).length; l.name = l.who || "?"; l.history = [];
+        ["rule", "done", "date", "who"].forEach((k) => delete l[k]);
+      }
+      if (l.v !== 3) {
+        l.v = 3;
+        l.enquiryDate = l.enquiryDate || l.created || l.anchor || todayStr();
+        l.remarks = l.remarks ?? (l.interest ? "Looking for: " + l.interest : "");
+        delete l.interest;
+        l.phone = l.phone || ""; l.scheduler = l.scheduler || ""; l.trialTime = l.trialTime || ""; l.followedUp = l.followedUp || "";
+        if (!l.trialDate && TRIAL_STAGES.includes(l.stage)) l.trialDate = l.anchor;
+        l.history = l.history || [];
+      }
     });
   }
 
@@ -237,25 +254,17 @@
   }
   function dueFollowups() {
     const today = parse(todayStr());
-    return S.leads.map((l) => ({ l, n: leadNext(l) })).filter((x) => x.n && x.n.due <= today);
+    return S.leads.map((l) => ({ l, n: leadNext(l) })).filter((x) => x.n && x.n.due <= today && !inGym(x.l));
   }
 
-  // Start a journey. Skips steps that were already due before today when the
-  // journey starts (e.g. "confirm tomorrow's trial" for a trial booked today).
+  // Skips steps that were already overdue when the journey starts (e.g.
+  // "confirm tomorrow's trial" for a trial booked for today).
   function startJourney(l, stage, anchor, note) {
     l.stage = stage; l.anchor = anchor; l.step = 0;
     const j = journey(stage);
     const today = parse(todayStr());
     while (j.steps[l.step] && !j.steps[l.step].outcome && addDays(parse(anchor), j.steps[l.step].d) < today && l.step < j.steps.length - 1) l.step++;
     if (note) l.history.push({ d: todayStr(), t: note });
-  }
-
-  function recordTrial(l, outcome) {
-    l.trialOutcome = outcome; l.trialDate = l.anchor; l.outcomeDate = todayStr();
-    if (outcome === "signed") startJourney(l, "member", todayStr(), "Signed after trial");
-    if (outcome === "nosign") startJourney(l, "nosign", l.anchor, "Trialled, didn't sign");
-    if (outcome === "friends") startJourney(l, "friends", l.anchor, "Trialled with friends, not keen");
-    if (outcome === "noshow") startJourney(l, "enquiry", todayStr(), "Didn't show up for trial");
   }
 
   function parseDateInput(v) {
@@ -266,122 +275,305 @@
     if (m) { const y = m[3] ? (m[3].length === 2 ? "20" + m[3] : m[3]) : new Date().getFullYear(); return `${y}-${pad(m[2])}-${pad(m[1])}`; }
     return null;
   }
+  function parseTimeInput(v) {
+    const m = (v || "").trim().toLowerCase().match(/^(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?$/);
+    if (!m) return "";
+    let h = Number(m[1]);
+    if (m[3] === "pm" && h < 12) h += 12;
+    if (m[3] === "am" && h === 12) h = 0;
+    return h < 24 ? `${pad(h)}:${m[2] || "00"}` : "";
+  }
+  const touch = (l) => { l.updatedAt = Date.now(); };
+  function addRemark(l, text) { l.remarks = (l.remarks ? l.remarks.trim().replace(/[;.]$/, "") + "; " : "") + text; touch(l); }
+  const time12 = (d) => { let h = d.getHours(); const m = pad(d.getMinutes()); const ap = h < 12 ? "am" : "pm"; h = h % 12 || 12; return `${h}:${m}${ap}`; };
+  const hm12 = (hm) => { if (!hm) return ""; const [h, m] = hm.split(":").map(Number); const x = new Date(); x.setHours(h, m); return time12(x).replace(/am$/, " AM").replace(/pm$/, " PM"); };
+  const dm = (s) => { const d = parse(s); return d ? `${d.getDate()}/${d.getMonth() + 1}` : ""; };
+
+  // ---- trial check-in / check-out
+  const inGym = (l) => l.checkIn && !l.checkOut && ymd(new Date(l.checkIn)) === todayStr();
+  const awaitingOutcome = (l) => l.stage === "trial" && !l.closed && l.checkIn && (l.checkOut || ymd(new Date(l.checkIn)) !== todayStr());
+  function checkIn(l) {
+    const now = new Date();
+    l.checkIn = now.getTime(); l.checkOut = null;
+    if (!l.trialDate || l.stage !== "trial") l.trialDate = todayStr();
+    if (!l.trialTime) l.trialTime = hhmm(now);
+    if (l.stage !== "trial") startJourney(l, "trial", l.trialDate, "Came for trial");
+    l.anchor = l.trialDate;
+    l.step = journey("trial").steps.findIndex((s) => s.outcome);
+    l.trialRemark = `Came for trial ${dm(todayStr())} ${time12(now)}`;
+    addRemark(l, l.trialRemark);
+  }
+  function checkOut(l) {
+    const now = new Date();
+    l.checkOut = now.getTime();
+    const mins = Math.round((l.checkOut - l.checkIn) / 60000);
+    const full = `${l.trialRemark}–${time12(now)} (${mins} min)`;
+    l.remarks = l.trialRemark && l.remarks.includes(l.trialRemark) ? l.remarks.replace(l.trialRemark, full) : (l.remarks ? l.remarks + "; " : "") + full;
+    l.trialRemark = full; touch(l);
+  }
+  function recordTrial(l, outcome) {
+    if (inGym(l)) checkOut(l);
+    l.trialOutcome = outcome; l.trialDate = l.trialDate || l.anchor; l.outcomeDate = todayStr();
+    const text = { signed: "Signed", nosign: "Didn't sign", friends: "Came with friends, not keen", noshow: "No-show" }[outcome];
+    addRemark(l, text);
+    if (outcome === "signed") startJourney(l, "member", todayStr(), "Signed after trial");
+    if (outcome === "nosign") startJourney(l, "nosign", l.trialDate, text);
+    if (outcome === "friends") startJourney(l, "friends", l.trialDate, text);
+    if (outcome === "noshow") startJourney(l, "enquiry", todayStr(), text);
+  }
+
+  // ---- the online sheet
+  function sheetDate(s) {
+    const d = parse(s);
+    if (!d) return "";
+    return D.sheet.dateFormat === "D MMM YYYY" ? `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getFullYear()}` : `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+  }
+  function cell(l, field) {
+    switch (field) {
+      case "name": return l.name;
+      case "phone": return l.phone;
+      case "waLink": return l.phone ? `https://wa.me/${waNumber(l.phone)}` : "";
+      case "enquiryDate": return sheetDate(l.enquiryDate);
+      case "channel": return l.channel;
+      case "scheduler": return l.scheduler;
+      case "trialDate": return sheetDate(l.trialDate);
+      case "trialTime": return hm12(l.trialTime);
+      case "followedUp": return sheetDate(l.followedUp);
+      case "remarks": return l.remarks;
+      default: return "";
+    }
+  }
+  // Tabs and line breaks inside a value would split it across cells.
+  const sheetRow = (l) => D.sheet.columns.map((c) => String(cell(l, c.field) ?? "").replace(/[\t\r\n]+/g, " ").trim()).join("\t");
+  const sheetState = (l) => (!l.loggedAt ? "new" : (l.updatedAt || 0) > l.loggedAt ? "changed" : "logged");
+  const unlogged = () => S.leads.filter((l) => sheetState(l) !== "logged");
+
+  // Blocks NRIC and card details in remarks. Names and numbers are allowed:
+  // they belong in the sheet.
+  const sensitive = (t) => /\b[STFGM]\d{7}[A-Z]\b/i.test(t) || /\b\d(?:[ -]?\d){12,18}\b/.test(t);
 
   function monthStats() {
-    const ym = todayStr().slice(0, 7);
-    const inMonth = (d) => d && d.slice(0, 7) === ym;
+    const cur = todayStr().slice(0, 7);
+    const inMonth = (d) => d && d.slice(0, 7) === cur;
     const trials = S.leads.filter((l) => l.trialOutcome && l.trialOutcome !== "noshow" && inMonth(l.trialDate || l.outcomeDate));
     const signed = trials.filter((l) => l.trialOutcome === "signed").length;
     const reasons = {};
     S.leads.filter((l) => l.reason && inMonth(l.reasonDate)).forEach((l) => { reasons[l.reason] = (reasons[l.reason] || 0) + 1; });
-    const walkins = S.leads.filter((l) => l.type === "walkin-signed" && inMonth(l.created)).length;
-    return { trials: trials.length, signed, walkins, reasons: Object.entries(reasons).sort((a, b) => b[1] - a[1]) };
+    const enquiries = S.leads.filter((l) => inMonth(l.enquiryDate)).length;
+    return { trials: trials.length, signed, enquiries, reasons: Object.entries(reasons).sort((a, b) => b[1] - a[1]) };
+  }
+
+  // ---- rendering
+  function leadCard(l, mode = "list") {
+    const n = leadNext(l);
+    const today = parse(todayStr());
+    const j = journey(l.stage);
+    const isProspect = j.kind === "prospect";
+    const chips = [];
+    if (l.trialDate) chips.push(`<span class="chip ${l.trialDate === todayStr() ? "chip-accent" : ""}">Trial ${l.trialDate === todayStr() ? "today" : shortDate(parse(l.trialDate))}${l.trialTime ? " · " + esc(hm12(l.trialTime)) : ""}</span>`);
+    chips.push(`<span class="chip">Enquired ${esc(shortDate(parse(l.enquiryDate)))}</span>`);
+    if (l.channel) chips.push(`<span class="chip">${esc(l.channel)}</span>`);
+    if (l.followedUp) chips.push(`<span class="chip">Followed up ${esc(shortDate(parse(l.followedUp)))}</span>`);
+    const wa = l.phone ? `<a class="link" href="https://wa.me/${waNumber(l.phone)}" target="_blank" rel="noopener noreferrer">WhatsApp ↗</a>` : "";
+
+    let body = "", acts = [];
+    if (mode === "gym") {
+      const mins = Math.round((Date.now() - l.checkIn) / 60000);
+      body = `<p class="gym-time"><span class="live-dot" aria-hidden="true"></span>In since ${time12(new Date(l.checkIn))} · <b>${mins} min</b></p>
+        <label class="field">Notes from your chat (saved to Remarks)<textarea rows="3" data-remarks="${l.id}" placeholder="What are they looking for? What's stopping them?">${esc(l.remarks)}</textarea></label>`;
+      acts = [`<button class="btn btn-primary" data-act="lead-trial" data-o="signed" data-id="${l.id}">Signed up</button>`,
+        `<button class="btn" data-act="lead-checkout" data-id="${l.id}">Check out</button>`];
+    } else if (mode === "outcome") {
+      body = `<p class="small muted">${esc(l.trialRemark || "Trial finished")}. How did it go?</p>`;
+      acts = [["signed", "Signed", "btn-primary"], ["nosign", "Didn't sign", ""], ["friends", "With friends, not keen", ""]]
+        .map(([o, t, c]) => `<button class="btn btn-sm ${c}" data-act="lead-trial" data-o="${o}" data-id="${l.id}">${t}</button>`);
+    } else if (mode === "arriving") {
+      body = l.remarks ? `<p class="small remarks">${esc(l.remarks)}</p>` : "";
+      acts = [`<button class="btn btn-primary" data-act="lead-checkin" data-id="${l.id}">Check in</button>`,
+        `<button class="btn btn-sm btn-ghost" data-act="lead-trial" data-o="noshow" data-id="${l.id}">No-show</button>`,
+        `<button class="btn btn-sm btn-ghost" data-act="lead-book" data-id="${l.id}">Reschedule</button>`];
+    } else if (n) {
+      const diff = dayDiff(today, n.due);
+      const when = diff < 0 ? `<span class="overdue">${-diff}d overdue</span>` : diff === 0 ? `<span class="overdue">due today</span>` : `in ${diff}d · ${shortDate(n.due)}`;
+      body = `<div class="next"><span class="small muted">Next · step ${n.idx + 1} of ${n.total} · ${when}</span><b>${esc(n.action)}</b></div>
+        ${l.remarks ? `<p class="small remarks">${esc(l.remarks)}</p>` : ""}`;
+      if (n.outcome) {
+        acts.push(`<button class="btn btn-sm btn-primary" data-act="lead-checkin" data-id="${l.id}">Check in</button>`,
+          `<button class="btn btn-sm" data-act="lead-trial" data-o="noshow" data-id="${l.id}">No-show</button>`,
+          `<button class="btn btn-sm" data-act="lead-book" data-id="${l.id}">Reschedule</button>`);
+      } else {
+        if (n.script) acts.push(`<button class="btn btn-sm btn-primary" data-act="lead-copy" data-id="${l.id}">Copy ${esc(n.script)}</button>`);
+        acts.push(`<button class="btn btn-sm" data-act="lead-step" data-id="${l.id}" title="Marks today as the Followed Up date">Done</button>`);
+        if (isProspect && l.stage !== "trial") acts.push(`<button class="btn btn-sm" data-act="lead-book" data-id="${l.id}">Book trial</button>`, `<button class="btn btn-sm" data-act="lead-checkin" data-id="${l.id}">Check in now</button>`);
+        if (isProspect) acts.push(`<button class="btn btn-sm" data-act="lead-signed" data-id="${l.id}">Signed up</button>`);
+      }
+      if (["nosign", "friends", "enquiry"].includes(l.stage)) acts.push(`<select class="reason" data-reason="${l.id}" aria-label="Why didn't they sign?"><option value="">Why not?</option>${D.lostReasons.map((r) => `<option ${l.reason === r ? "selected" : ""}>${esc(r)}</option>`).join("")}</select>`);
+    } else {
+      body = `<p class="small muted">${esc(l.outcome || "All steps done")}</p>${l.remarks ? `<p class="small remarks">${esc(l.remarks)}</p>` : ""}`;
+    }
+
+    const ss = sheetState(l);
+    const sheetBtn = `<button class="sheet-btn ${ss}" data-act="lead-row" data-id="${l.id}" title="Copies the row for the online sheet. Click the Name cell of an empty row and paste.">
+      ${ss === "logged" ? "✓ In sheet" : ss === "changed" ? "↻ Changed, copy row again" : "⧉ Copy row for sheet"}</button>`;
+    const due = n && !["gym", "outcome", "arriving"].includes(mode) && n.due <= today;
+    return `<article class="lead ${mode} ${due ? "is-due" : ""}">
+      <header>
+        <div class="who"><h3>${esc(l.name)}</h3><div class="small muted">${esc(l.phone || "no number")} ${wa}</div></div>
+        <div class="row tight">${isProspect && l.cat ? `<span class="badge ${l.cat.toLowerCase()}">${esc(l.cat)}</span>` : ""}<span class="badge">${esc(j.label)}</span></div>
+      </header>
+      <div class="chips">${chips.join("")}</div>
+      ${body}
+      ${acts.length ? `<div class="row acts">${acts.join("")}</div>` : ""}
+      <footer>${sheetBtn}<span class="spacer"></span>
+        <button class="btn btn-sm btn-ghost" data-act="lead-edit" data-id="${l.id}">Edit</button>
+        ${n ? `<button class="btn btn-sm btn-ghost" data-act="lead-close" data-id="${l.id}">Close</button>` : `<button class="btn btn-sm btn-ghost btn-danger" data-act="lead-del" data-id="${l.id}">Delete</button>`}</footer>
+    </article>`;
   }
 
   function renderFollowups() {
     const today = parse(todayStr());
+    const gym = S.leads.filter(inGym);
+    const outcome = S.leads.filter((l) => !inGym(l) && awaitingOutcome(l));
+    const arriving = S.leads.filter((l) => l.stage === "trial" && !l.closed && l.trialDate === todayStr() && !l.checkIn);
+    const special = new Set([...gym, ...outcome, ...arriving].map((l) => l.id));
     const f = S.ui.fuFilter || "due";
-    const open = S.leads.map((l) => ({ l, n: leadNext(l) })).filter((x) => x.n).sort((a, b) => a.n.due - b.n.due);
-    const counts = {
-      due: open.filter((x) => x.n.due <= today).length,
-      prospect: open.filter((x) => x.n.journey.kind === "prospect").length,
-      member: open.filter((x) => x.n.journey.kind === "member").length,
-      all: open.length,
+    const q = (S.ui.fuQ || "").toLowerCase();
+    const open = S.leads.map((l) => ({ l, n: leadNext(l) })).filter((x) => x.n && !special.has(x.l.id)).sort((a, b) => a.n.due - b.n.due);
+    const match = {
+      due: (x) => x.n.due <= today,
+      trial: (x) => x.l.stage === "trial",
+      prospect: (x) => x.n.journey.kind === "prospect",
+      member: (x) => x.n.journey.kind === "member",
+      all: () => true,
     };
-    const shown = open.filter((x) => f === "all" || (f === "due" ? x.n.due <= today : x.n.journey.kind === f));
-    const closed = S.leads.filter((l) => !leadNext(l));
+    const shown = open.filter((x) => match[f](x) && (!q || (x.l.name + " " + x.l.phone).toLowerCase().includes(q)));
+    const done = S.leads.filter((l) => !leadNext(l));
     const st = monthStats();
-    const type = D.customerTypes.find((t) => t.id === (S.ui.fuType || "trial-booked")) || D.customerTypes[0];
+    const pending = unlogged().length;
+    const segBtn = (id, label) => `<button data-act="fu-filter" data-id="${id}" aria-pressed="${f === id}">${label} <span class="muted">${open.filter(match[id]).length}</span></button>`;
+    const tile = (n, label, cls = "") => `<div class="tile ${cls}"><b>${n}</b><span>${label}</span></div>`;
 
-    const items = shown.map(({ l, n }) => {
-      const diff = dayDiff(today, n.due);
-      const when = diff < 0 ? `<span class="overdue">${-diff}d overdue</span>` : diff === 0 ? `<span class="overdue">due today</span>` : `in ${diff}d · ${shortDate(n.due)}`;
-      const isProspect = n.journey.kind === "prospect";
-      const acts = [];
-      if (n.outcome) {
-        acts.push(`<span class="small muted">How did it go?</span>`,
-          `<button class="btn btn-sm btn-primary" data-act="lead-trial" data-o="signed" data-id="${l.id}">Signed</button>`,
-          `<button class="btn btn-sm" data-act="lead-trial" data-o="nosign" data-id="${l.id}">Didn't sign</button>`,
-          `<button class="btn btn-sm" data-act="lead-trial" data-o="friends" data-id="${l.id}">With friends, not keen</button>`,
-          `<button class="btn btn-sm" data-act="lead-trial" data-o="noshow" data-id="${l.id}">No-show</button>`);
-      } else {
-        if (n.script) acts.push(`<button class="btn btn-sm btn-primary" data-act="lead-copy" data-id="${l.id}">Copy ${esc(n.script)}</button>`);
-        acts.push(`<button class="btn btn-sm" data-act="lead-step" data-id="${l.id}">Done</button>`);
-        if (isProspect && l.stage !== "trial") acts.push(`<button class="btn btn-sm" data-act="lead-book" data-id="${l.id}">Booked trial</button>`, `<button class="btn btn-sm" data-act="lead-signed" data-id="${l.id}">Signed up</button>`);
-      }
-      acts.push(`<button class="btn btn-sm btn-ghost" data-act="lead-close" data-id="${l.id}">Close</button>`);
-      const reasonSel = ["nosign", "friends", "enquiry"].includes(l.stage)
-        ? `<select class="reason" data-reason="${l.id}" aria-label="Why didn't they sign?"><option value="">Why not? (optional)</option>${D.lostReasons.map((r) => `<option ${l.reason === r ? "selected" : ""}>${esc(r)}</option>`).join("")}</select>` : "";
-      return `<li class="fu ${diff <= 0 ? "is-due" : ""}">
-        <div class="fu-main">
-          <div class="row"><b>${esc(l.name)}</b>${isProspect && l.cat ? `<span class="badge ${l.cat.toLowerCase()}">${esc(l.cat)}</span>` : ""}<span class="badge">${esc(n.journey.label)}</span><span class="small muted">${esc(l.channel || "")}</span></div>
-          <div>${esc(n.action)} <span class="small muted">· step ${n.idx + 1} of ${n.total}</span></div>
-          ${l.interest ? `<div class="small muted">Looking for: ${esc(l.interest)}</div>` : ""}
-        </div>
-        <div class="fu-due">${when}</div>
-        <div class="fu-actions row">${acts.join("")}${reasonSel}</div>
-      </li>`;
-    }).join("");
-
-    const segBtn = (id, label) => `<button data-act="fu-filter" data-id="${id}" aria-pressed="${f === id}">${label} (${counts[id]})</button>`;
     return `
-      <div class="page-head"><div><h1>Follow-ups</h1>
-        <p>Every trial, enquiry and new member, with the next message due. The DSR is still where every lead is recorded.</p></div></div>
-      <div class="grid">
-        <div class="grid grid-2">
-          <section class="card">
-            <h2>Add someone</h2>
-            <div class="fields">
-              <label class="field">First name or initials<input type="text" id="ld-name" maxlength="24" autocomplete="off"></label>
-              <label class="field">Who are they?<select id="ld-type" data-act-change="fu-type">${D.customerTypes.map((t) => `<option value="${t.id}" ${t.id === type.id ? "selected" : ""}>${esc(t.label)}</option>`).join("")}</select></label>
-              <label class="field"><span id="ld-date-label">${esc(type.dateLabel)}</span><input type="date" id="ld-date" value="${type.id === "trial-booked" ? ymd(addDays(new Date(), 1)) : todayStr()}"></label>
-              <label class="field">Came in through<select id="ld-channel">${CHANNELS.map((c) => `<option ${type.source === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>
-              <label class="field">Category<select id="ld-cat"><option>HOT</option><option selected>WARM</option><option>COLD</option></select></label>
-              <label class="field">Looking for (no personal details)<input type="text" id="ld-interest" placeholder="e.g. fat loss, evenings, 12m"></label>
-            </div>
-            <div class="row" style-top><button class="btn btn-primary" data-act="lead-add">Add</button><span class="small" id="ld-msg"></span></div>
-          </section>
-          <section class="card">
-            <h2>This month</h2>
-            <div class="stats">
-              <div class="stat"><b>${st.trials}</b><span>trials done</span></div>
-              <div class="stat"><b>${st.signed}</b><span>signed after trial</span></div>
-              <div class="stat"><b>${st.trials ? Math.round((st.signed / st.trials) * 100) + "%" : "–"}</b><span>trial conversion</span></div>
-              <div class="stat"><b>${st.walkins}</b><span>walk-in sign-ups</span></div>
-            </div>
-            <h3 style-top>Why trials and enquiries didn't sign</h3>
-            ${st.reasons.length ? `<ul class="plain small">${st.reasons.map(([r, c]) => `<li>${esc(r)}: <b>${c}</b></li>`).join("")}</ul>` : `<p class="small muted">Pick a reason on a lead's row ("Why not?") and it's tallied here. Useful for the monthly report.</p>`}
-            <p class="small muted" style-top>${pendingBadge("CONFIRM #6")} Timings follow handbook 4.6. Steps for new members are suggestions.</p>
-          </section>
+      <div class="page-head"><div><h1>Prospect &amp; Trial</h1>
+        <p>Log enquiries and trials here, check trials in and out, and copy each row straight into the online sheet.</p></div>
+        <button class="btn btn-primary" data-act="lead-new">+ New prospect</button></div>
+      <div class="tiles">
+        ${tile(gym.length, "in the gym now", gym.length ? "tile-live" : "")}
+        ${tile(arriving.length, "trials still to arrive today")}
+        ${tile(dueFollowups().length, "follow-ups due")}
+        ${tile(pending, "not in the sheet yet", pending ? "tile-warn" : "")}
+      </div>
+      ${S.ui.leadDraft ? renderLeadEditor() : ""}
+      ${gym.length || outcome.length ? `<section class="band band-live"><div class="band-head"><h2><span class="live-dot" aria-hidden="true"></span>In the gym now</h2>
+          <p class="small muted">Good moment for a chat: ${esc(D.trialTalk[0])}</p></div>
+        <div class="lead-grid">${gym.map((l) => leadCard(l, "gym")).join("")}${outcome.map((l) => leadCard(l, "outcome")).join("")}</div>
+        <details class="talk"><summary>Talking points</summary><ol class="small">${D.trialTalk.map((t) => `<li>${esc(t)}</li>`).join("")}</ol></details></section>` : ""}
+      ${arriving.length ? `<section class="band"><div class="band-head"><h2>Trials today</h2><p class="small muted">Check them in when they arrive.</p></div>
+        <div class="lead-grid">${arriving.sort((a, b) => (a.trialTime || "").localeCompare(b.trialTime || "")).map((l) => leadCard(l, "arriving")).join("")}</div></section>` : ""}
+      <section class="band">
+        <div class="band-head row">
+          <div class="seg" role="group" aria-label="Show">${segBtn("due", "Due now")}${segBtn("trial", "Trials booked")}${segBtn("prospect", "Prospects")}${segBtn("member", "New members")}${segBtn("all", "All")}</div>
+          <span class="spacer"></span>
+          <input type="text" id="fu-q" class="w-auto" placeholder="Search name or number" value="${esc(S.ui.fuQ || "")}">
+          ${pending ? `<button class="btn" data-act="lead-rows" title="Copies every row that isn't in the sheet yet">Copy ${pending} new row${pending > 1 ? "s" : ""}</button>` : ""}
         </div>
+        ${shown.length ? `<div class="lead-grid">${shown.map(({ l }) => leadCard(l)).join("")}</div>` : `<div class="empty card">${q ? `No one matches "${esc(q)}".` : f === "due" ? "Nothing due right now." : "No one here yet."}</div>`}
+      </section>
+      <div class="grid grid-2">
         <section class="card">
-          <div class="card-head"><div class="seg" role="group" aria-label="Show">${segBtn("due", "Due now")}${segBtn("prospect", "Prospects")}${segBtn("member", "New members")}${segBtn("all", "All")}</div>
-            ${counts.due ? '<button class="btn btn-sm" data-act="copy-due">Copy due list</button>' : ""}</div>
-          ${shown.length ? `<ul class="fu-list">${items}</ul>` : `<div class="empty">${f === "due" ? "Nothing due. Nice." : "No one here yet. Add someone above."}</div>`}
+          <h2>This month</h2>
+          <div class="stats">
+            <div class="stat"><b>${st.enquiries}</b><span>enquiries logged</span></div>
+            <div class="stat"><b>${st.trials}</b><span>trials done</span></div>
+            <div class="stat"><b>${st.signed}</b><span>signed after trial</span></div>
+            <div class="stat"><b>${st.trials ? Math.round((st.signed / st.trials) * 100) + "%" : "–"}</b><span>trial conversion</span></div>
+          </div>
+          <h3 style-top>Why they didn't sign</h3>
+          ${st.reasons.length ? `<ul class="plain small">${st.reasons.map(([r, c]) => `<li>${esc(r)}: <b>${c}</b></li>`).join("")}</ul>` : `<p class="small muted">Pick a reason under "Why not?" on a card and it's counted here.</p>`}
         </section>
-        ${closed.length ? `<section class="card"><details><summary>Finished or closed (${closed.length})</summary>
-          <div class="table-wrap"><table><tbody>${closed.slice(-50).reverse().map((l) => `<tr><td><b>${esc(l.name)}</b></td><td>${esc(journey(l.stage).label)}</td><td>${esc(l.outcome || "All steps done")}${l.reason ? " · " + esc(l.reason) : ""}</td>
-          <td class="num"><button class="btn btn-sm btn-ghost btn-danger" data-act="lead-del" data-id="${l.id}">Delete</button></td></tr>`).join("")}</tbody></table></div>
-          <button class="btn btn-sm" data-act="lead-clear" style-top>Delete all finished</button></details></section>` : ""}
-      </div>`;
+        <section class="card">
+          <h2>Pasting into the sheet</h2>
+          <ol class="plain small">
+            <li>Click <b>Copy row for sheet</b> on a card (or <b>Copy new rows</b> for all of them).</li>
+            <li>In the online sheet, click the <b>Name</b> cell of the first empty row.</li>
+            <li>Paste (Ctrl+V). Each value lands in its own column.</li>
+          </ol>
+          <p class="small muted" style-top>Columns: ${D.sheet.columns.map((c) => (c.field ? esc(c.label) : `<s>${esc(c.label)}</s>`)).join(" · ")}. Crossed-out columns are left blank. Change them in data.js.</p>
+          <p class="small muted" style-top>${pendingBadge("CONFIRM #6")} Follow-up timings follow handbook 4.6.</p>
+        </section>
+      </div>
+      ${done.length ? `<section class="card" style-top><details><summary>Finished or closed (${done.length})</summary>
+        <div class="lead-grid" style-top>${done.slice(-30).reverse().map((l) => leadCard(l)).join("")}</div>
+        <button class="btn btn-sm" data-act="lead-clear" style-top>Delete all finished</button></details></section>` : ""}`;
   }
 
-  function addLead() {
-    const name = document.getElementById("ld-name").value.trim();
-    const interest = document.getElementById("ld-interest").value.trim();
+  function renderLeadEditor() {
+    const d = S.ui.leadDraft;
+    const type = D.customerTypes.find((t) => t.id === d.type) || D.customerTypes[0];
+    const isNew = !d.id;
+    const showTrial = isNew ? type.trial : true;
+    const f = (k, label, type2 = "text", extra = "") => `<label class="field">${label}<input type="${type2}" data-ld="${k}" value="${esc(d[k] || "")}" ${extra}></label>`;
+    const preview = { ...d, remarks: d.remarks };
+    return `<section class="card editor" id="lead-editor">
+      <div class="card-head"><h2>${isNew ? "New prospect" : "Edit " + esc(d.name)}</h2><button class="btn btn-sm btn-ghost" data-act="ld-cancel" aria-label="Close">✕</button></div>
+      ${isNew ? `<div class="type-pick" role="radiogroup" aria-label="Who are they?">${D.customerTypes.map((t) => `<button role="radio" aria-checked="${t.id === type.id}" data-act="ld-type" data-id="${t.id}">${esc(t.label)}</button>`).join("")}</div>` : ""}
+      <div class="fields" style-top>
+        ${f("name", "Name", "text", 'autocomplete="off" maxlength="60"')}
+        ${f("phone", "Contact number", "tel", 'autocomplete="off" placeholder="9123 4567"')}
+        ${f("enquiryDate", "Date of enquiry", "date")}
+        <label class="field">How they found us<select data-ld="channel">${CHANNELS.map((c) => `<option ${d.channel === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+        ${showTrial ? f("trialDate", "Trial date", "date") + f("trialTime", "Trial time", "time") : ""}
+        ${f("scheduler", "Scheduler")}
+        ${!isNew ? f("followedUp", "Followed up", "date") : ""}
+        ${type.journey !== "member" || !isNew ? `<label class="field">Category<select data-ld="cat">${["HOT", "WARM", "COLD"].map((c) => `<option ${d.cat === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>` : ""}
+      </div>
+      <label class="field" style-top>Remarks<textarea data-ld="remarks" rows="2" placeholder="What they're looking for, what you talked about">${esc(d.remarks || "")}</textarea></label>
+      <div class="row" style-top><button class="btn btn-primary" data-act="ld-save">${isNew ? (type.checkIn ? "Add and check in" : "Add") : "Save"}</button>
+        <button class="btn" data-act="ld-cancel">Cancel</button><span class="small overdue" id="ld-msg"></span></div>
+      <details class="small" style-top><summary>Preview the sheet row</summary><div class="table-wrap"><table class="sheet-preview"><thead><tr>${D.sheet.columns.map((c) => `<th>${esc(c.label)}</th>`).join("")}</tr></thead>
+        <tbody id="ld-preview">${previewRow(preview)}</tbody></table></div></details>
+    </section>`;
+  }
+
+  const previewRow = (d) => `<tr>${D.sheet.columns.map((c) => `<td>${esc(cell(d, c.field))}</td>`).join("")}</tr>`;
+  function updateLeadPreview() { const el = document.getElementById("ld-preview"); if (el && S.ui.leadDraft) el.innerHTML = previewRow(S.ui.leadDraft); }
+
+  function newLeadDraft(typeId = S.ui.fuType || "trial-booked") {
+    const t = D.customerTypes.find((x) => x.id === typeId) || D.customerTypes[0];
+    return { id: null, type: t.id, name: "", phone: "", enquiryDate: todayStr(), channel: t.source || "WhatsApp",
+      trialDate: t.trial ? (t.id === "trial-booked" ? ymd(addDays(new Date(), 1)) : todayStr()) : "", trialTime: "",
+      scheduler: S.settings.name || "", cat: "WARM", remarks: "" };
+  }
+
+  function saveLead() {
+    const d = S.ui.leadDraft;
     const msg = document.getElementById("ld-msg");
-    const fail = (t) => { msg.textContent = t; msg.className = "small overdue"; };
-    if (!name) return fail("Add a first name or initials.");
-    if (/\d{3,}/.test(name) || hasPII(name)) return fail("Just a first name or initials, no numbers.");
-    if (hasPII(interest)) return fail("The 'looking for' note seems to contain personal details. Remove them.");
-    const type = D.customerTypes.find((t) => t.id === document.getElementById("ld-type").value);
-    const date = document.getElementById("ld-date").value || todayStr();
-    const l = { id: uid(), name, interest, type: type.id, channel: document.getElementById("ld-channel").value, cat: document.getElementById("ld-cat").value, created: todayStr(), history: [] };
-    startJourney(l, type.journey, date, type.label);
-    if (type.id === "trial-signed") { l.trialOutcome = "signed"; l.trialDate = date; }
-    if (type.id === "trial-nosign") { l.trialOutcome = "nosign"; l.trialDate = date; }
-    if (type.id === "trial-friends") { l.trialOutcome = "friends"; l.trialDate = date; }
-    S.leads.push(l); save(); render(); toast(`${name} added`);
+    d.name = (d.name || "").trim(); d.phone = (d.phone || "").trim();
+    if (!d.name) { msg.textContent = "Add their name."; return; }
+    if (d.phone && waNumber(d.phone).length < 8) { msg.textContent = "That contact number looks too short."; return; }
+    if (sensitive(d.remarks || "")) { msg.textContent = "Remarks look like they contain an NRIC or card number. Remove it."; return; }
+    const fields = ["name", "phone", "enquiryDate", "channel", "trialDate", "trialTime", "scheduler", "followedUp", "cat", "remarks"];
+    if (d.id) {
+      const l = S.leads.find((x) => x.id === d.id);
+      const trialMoved = l.stage === "trial" && d.trialDate && d.trialDate !== l.trialDate;
+      fields.forEach((k) => { if (k in d) l[k] = d[k]; });
+      if (trialMoved) startJourney(l, "trial", d.trialDate, "Trial moved");
+      touch(l);
+      S.ui.leadDraft = null; save(); render(); toast("Saved"); return;
+    }
+    const type = D.customerTypes.find((t) => t.id === d.type);
+    const l = { id: uid(), v: 3, type: type.id, created: todayStr(), history: [], followedUp: "" };
+    fields.forEach((k) => { if (k in d) l[k] = d[k]; });
+    if (!type.trial && !type.checkIn) { l.trialDate = ""; l.trialTime = ""; }
+    const anchor = { enquiry: l.enquiryDate, trial: l.trialDate || todayStr(), nosign: l.trialDate, friends: l.trialDate, member: type.id === "trial-signed" ? (l.trialDate || todayStr()) : l.enquiryDate }[type.journey] || todayStr();
+    startJourney(l, type.journey, anchor, type.label);
+    if (type.id === "trial-signed") { l.trialOutcome = "signed"; }
+    if (type.id === "trial-nosign") { l.trialOutcome = "nosign"; }
+    if (type.id === "trial-friends") { l.trialOutcome = "friends"; }
+    if (type.checkIn) checkIn(l);
+    touch(l);
+    S.leads.push(l); S.ui.fuType = type.id; S.ui.leadDraft = null; save(); render();
+    toast(type.checkIn ? `${l.name} checked in` : `${l.name} added`);
   }
 
   // ================= PAYMENTS (monthly dues chase) =================
@@ -1068,28 +1260,39 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
       case "reset-day": if (confirm("Clear today's ticks and notes?")) { S.days[todayStr()] = null; delete S.days[todayStr()]; day(); save(); render(); } break;
       case "copy-handover": copy(handoverText(), "Handover copied"); break;
 
-      case "lead-add": addLead(); break;
       case "fu-filter": S.ui.fuFilter = id; save(); render(); break;
-      case "lead-step": { const l = S.leads.find((x) => x.id === id); const n = leadNext(l); if (n) { l.history.push({ d: todayStr(), t: n.action }); l.step++; } save(); render(); break; }
+      case "lead-new": S.ui.leadDraft = newLeadDraft(); save(); render(); document.querySelector('[data-ld="name"]')?.focus(); break;
+      case "ld-type": { const keep = S.ui.leadDraft; S.ui.leadDraft = Object.assign(newLeadDraft(id), { name: keep.name, phone: keep.phone, remarks: keep.remarks, scheduler: keep.scheduler || S.settings.name }); save(); render(); break; }
+      case "ld-save": saveLead(); break;
+      case "ld-cancel": S.ui.leadDraft = null; save(); render(); break;
+      case "lead-edit": { const l = S.leads.find((x) => x.id === id); S.ui.leadDraft = { id: l.id, type: l.type, name: l.name, phone: l.phone, enquiryDate: l.enquiryDate, channel: l.channel, trialDate: l.trialDate || "", trialTime: l.trialTime || "", scheduler: l.scheduler || "", followedUp: l.followedUp || "", cat: l.cat || "WARM", remarks: l.remarks || "" }; save(); render(); window.scrollTo(0, 0); break; }
+      case "lead-step": { const l = S.leads.find((x) => x.id === id); const n = leadNext(l); if (n) { l.history.push({ d: todayStr(), t: n.action }); l.step++; l.followedUp = todayStr(); touch(l); } save(); render(); break; }
       case "lead-copy": {
         const l = S.leads.find((x) => x.id === id); const n = leadNext(l); const sc = findScript(n.script);
         if (!sc) { toast(`${n.script} isn't in your scripts any more`); break; }
         if (scriptStatus(sc).id === "expired" && !confirm(`${sc.key} has expired. Copy it anyway?`)) break;
         copy(fill(sc.text, { name: /^[A-Z]{1,4}$/.test(l.name) ? "" : l.name.split(" ")[0] }), `${sc.key} copied for ${l.name}`); break;
       }
+      case "lead-checkin": { const l = S.leads.find((x) => x.id === id); checkIn(l); save(); render(); toast(`${l.name} checked in`); break; }
+      case "lead-checkout": { const l = S.leads.find((x) => x.id === id); checkOut(l); save(); render(); toast(`${l.name} checked out`); break; }
       case "lead-trial": { const l = S.leads.find((x) => x.id === id); recordTrial(l, b.dataset.o); save(); render(); break; }
       case "lead-book": {
         const l = S.leads.find((x) => x.id === id);
-        const v = prompt("Trial date (e.g. 14/10 or 2026-10-14)", ymd(addDays(new Date(), 1)));
+        const v = prompt("Trial date and time (e.g. 14/10 3pm, or 2026-10-14 15:00)", `${dm(ymd(addDays(new Date(), 1)))} `);
         if (v === null) break;
-        const d2 = parseDateInput(v);
+        const parts = v.trim().split(/\s+/);
+        const d2 = parseDateInput(parts[0]);
         if (!d2) { toast("Couldn't read that date"); break; }
-        startJourney(l, "trial", d2, "Booked a trial"); save(); render(); break;
+        const t2 = parseTimeInput(parts.slice(1).join(" "));
+        l.trialDate = d2; if (t2) l.trialTime = t2; l.checkIn = null; l.checkOut = null;
+        startJourney(l, "trial", d2, "Booked a trial"); touch(l); save(); render(); break;
       }
-      case "lead-signed": { const l = S.leads.find((x) => x.id === id); if (l.stage === "nosign" || l.stage === "friends") { l.trialOutcome = "signed"; l.outcomeDate = todayStr(); } startJourney(l, "member", todayStr(), "Signed up"); save(); render(); toast(`${l.name} moved to new members`); break; }
+      case "lead-signed": { const l = S.leads.find((x) => x.id === id); if (l.stage === "nosign" || l.stage === "friends") { l.trialOutcome = "signed"; l.outcomeDate = todayStr(); } addRemark(l, "Signed"); startJourney(l, "member", todayStr(), "Signed up"); save(); render(); toast(`${l.name} moved to new members`); break; }
       case "lead-close": { const l = S.leads.find((x) => x.id === id); l.closed = true; l.outcome = journey(l.stage).kind === "member" ? "Done" : "Closed, not signing"; save(); render(); break; }
-      case "lead-del": S.leads = S.leads.filter((x) => x.id !== id); save(); render(); break;
+      case "lead-del": if (confirm("Delete this person from the hub?")) { S.leads = S.leads.filter((x) => x.id !== id); save(); render(); } break;
       case "lead-clear": if (confirm("Delete everyone in the finished list?")) { S.leads = S.leads.filter((l) => leadNext(l)); save(); render(); } break;
+      case "lead-row": { const l = S.leads.find((x) => x.id === id); copy(sheetRow(l), "Row copied. Click the Name cell in the sheet and paste"); l.loggedAt = Date.now(); save(); render(); break; }
+      case "lead-rows": { const list = unlogged(); copy(list.map(sheetRow).join("\n"), `${list.length} rows copied. Click the first empty Name cell and paste`); list.forEach((l) => { l.loggedAt = Date.now(); }); save(); render(); break; }
       case "copy-due": copy(dueFollowups().map(({ l, n }) => `${l.name} (${l.channel}): ${n.action}`).join("\n") || "No follow-ups due.", "Due list copied"); break;
 
       case "dues-filter": S.ui.duesFilter = id; save(); render(); break;
@@ -1183,6 +1386,13 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
     if (t.dataset.k) { S.calc[t.dataset.k] = t.value; save(); updateCalc(); return; }
     if (t.dataset.s && t.tagName !== "SELECT") { S.settings[t.dataset.s] = t.value; save(); return; }
     if (t.dataset.sd && t.tagName !== "SELECT") { S.ui.scDraft[t.dataset.sd] = t.value; save(); return; }
+    if (t.dataset.ld !== undefined && t.tagName !== "SELECT") { S.ui.leadDraft[t.dataset.ld] = t.value; save(); updateLeadPreview(); return; }
+    if (t.dataset.remarks) { const l = S.leads.find((x) => x.id === t.dataset.remarks); l.remarks = t.value; touch(l); save(); return; }
+    if (t.id === "fu-q") {
+      S.ui.fuQ = t.value; save();
+      const pos = t.selectionStart; render();
+      const el = document.getElementById("fu-q"); el.focus(); el.setSelectionRange(pos, pos); return;
+    }
     if (t.dataset.duesNote) { duesList().find((x) => x.id === t.dataset.duesNote).note = t.value; save(); return; }
     if (t.id === "sc-q" || t.id === "sc-name") { S.ui[t.id === "sc-q" ? "scQ" : "scName"] = t.value; save(); updateScripts(); return; }
     if (t.id === "dues-q") {
@@ -1199,15 +1409,8 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
     if (t.dataset.s && t.tagName === "SELECT") { S.settings[t.dataset.s] = t.value; save(); toast("Saved"); return; }
     if (t.dataset.sd && t.tagName === "SELECT") { S.ui.scDraft[t.dataset.sd] = t.value; save(); if (t.dataset.actChange === "sd-type") render(); return; }
     if (t.dataset.actChange === "dues-month") { S.ui.duesMonth = t.value; save(); render(); return; }
-    if (t.dataset.actChange === "fu-type") {
-      S.ui.fuType = t.value; save();
-      const ty = D.customerTypes.find((x) => x.id === t.value);
-      document.getElementById("ld-date-label").textContent = ty.dateLabel;
-      document.getElementById("ld-date").value = ty.id === "trial-booked" ? ymd(addDays(new Date(), 1)) : todayStr();
-      if (ty.source) document.getElementById("ld-channel").value = ty.source;
-      return;
-    }
-    if (t.dataset.reason) { const l = S.leads.find((x) => x.id === t.dataset.reason); l.reason = t.value; l.reasonDate = todayStr(); save(); render(); return; }
+    if (t.dataset.ld !== undefined && t.tagName === "SELECT") { S.ui.leadDraft[t.dataset.ld] = t.value; save(); updateLeadPreview(); return; }
+    if (t.dataset.reason) { const l = S.leads.find((x) => x.id === t.dataset.reason); l.reason = t.value; l.reasonDate = todayStr(); if (t.value) addRemark(l, `Reason: ${t.value}`); save(); render(); return; }
     if (t.dataset.duesStatus) { markDues(duesList().find((x) => x.id === t.dataset.duesStatus), t.value); save(); render(); return; }
     if (t.id === "dues-file") { readFile(t, importMembers); return; }
     if (t.id === "sc-file") {
@@ -1254,7 +1457,7 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
   setInterval(() => {
     updateBadge();
     const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
-    if (S.tab === "today" && !typing) render();
+    if ((S.tab === "today" || (S.tab === "followups" && !S.ui.leadDraft)) && !typing) render();
   }, 30000);
 
   init();
