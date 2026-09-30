@@ -97,7 +97,7 @@ window.AFO = {
   // EZpay makes a second deduction attempt on the night of the 7th.
   dues: { collectDay: 1, secondDeductionDay: 7, deadlineDay: 8 },
 
-  // Customer journeys for the Follow-ups tab. Each step is due `d` days after
+  // Customer journeys for the Prospect & Trial tab. Each step is due `d` days after
   // the journey's anchor date (enquiry date, trial date or sign-up date) and
   // suggests a script from the Scripts tab. Timings follow handbook 4.6 where it
   // has one [CONFIRM #6]; the rest are suggestions for the manager to adjust.
@@ -115,7 +115,7 @@ window.AFO = {
       id: "trial", label: "Trial booked", anchor: "Trial date", kind: "prospect",
       steps: [
         { d: -1, action: "Confirm tomorrow's trial", script: "/TrialReminder" },
-        { d: 0, action: "Record how the trial went", outcome: true },
+        { d: 0, action: "Check them in when they arrive", outcome: true },
       ],
     },
     {
@@ -145,13 +145,47 @@ window.AFO = {
   ],
 
   // The customer types staff pick when adding someone. Each starts a journey.
+  // `trial: true` shows the trial date and time fields. `checkIn: true` checks
+  // them in straight away.
   customerTypes: [
-    { id: "walkin-signed", label: "Walked in and signed up", journey: "member", source: "Walk-in", dateLabel: "Sign-up date" },
-    { id: "trial-signed", label: "Signed after a trial", journey: "member", source: "WhatsApp", dateLabel: "Sign-up date" },
-    { id: "trial-booked", label: "Booked a trial (WhatsApp or website)", journey: "trial", source: "WhatsApp", dateLabel: "Trial date" },
-    { id: "trial-nosign", label: "Trialled, didn't sign", journey: "nosign", source: "WhatsApp", dateLabel: "Trial date" },
-    { id: "trial-friends", label: "Trialled with friends, not keen", journey: "friends", source: "WhatsApp", dateLabel: "Trial date" },
-    { id: "enquiry", label: "Enquiry, no trial yet", journey: "enquiry", source: "WhatsApp", dateLabel: "Enquiry date" },
+    { id: "trial-booked", label: "Booked a trial (WhatsApp or website)", journey: "trial", source: "WhatsApp", trial: true },
+    { id: "walkin-trial", label: "Walk-in, trying the gym now", journey: "trial", source: "Walk-in", checkIn: true },
+    { id: "enquiry", label: "Enquiry, no trial yet", journey: "enquiry", source: "WhatsApp" },
+    { id: "walkin-signed", label: "Walked in and signed up", journey: "member", source: "Walk-in" },
+    { id: "trial-signed", label: "Signed after a trial", journey: "member", source: "WhatsApp", trial: true },
+    { id: "trial-nosign", label: "Trialled, didn't sign", journey: "nosign", source: "WhatsApp", trial: true },
+    { id: "trial-friends", label: "Trialled with friends, not keen", journey: "friends", source: "WhatsApp", trial: true },
+  ],
+
+  // The online Prospect & Trial sheet. "Copy row" puts these columns in this
+  // order, separated by tabs, so one paste into the Name cell fills the row.
+  // `field` is what goes in the column; "" leaves the cell blank. Available
+  // fields: name, phone, waLink, enquiryDate, channel, scheduler, trialDate,
+  // trialTime, followedUp, remarks.
+  sheet: {
+    dateFormat: "DD/MM/YYYY", // or "D MMM YYYY"
+    columns: [
+      { label: "Name", field: "name" },
+      { label: "Contact Number", field: "phone" },
+      { label: "Whatsapp Link", field: "" },
+      { label: "Date of Enquiry", field: "enquiryDate" },
+      { label: "How did the prospect find out about us", field: "" },
+      { label: "Schedule for Appt", field: "" },
+      { label: "Scheduler", field: "scheduler" },
+      { label: "Trial Date", field: "trialDate" },
+      { label: "Trial Time", field: "trialTime" },
+      { label: "Followed Up", field: "followedUp" },
+      { label: "Remarks", field: "remarks" },
+    ],
+  },
+
+  // Talking points while a trial is in the gym (handbook 5.2).
+  trialTalk: [
+    "How did the workout feel? What did you enjoy most?",
+    "What are you training for? (fat loss, muscle, getting started)",
+    "Anything you were looking for that you didn't get to see?",
+    "Recap their goals, then: \"Let me show you how to get started.\"",
+    "Close: \"Shall we get you started today?\"",
   ],
 
   // Why a prospect didn't sign. Tallied on the Follow-ups tab each month.

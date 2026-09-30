@@ -15,7 +15,7 @@ Bookmark the page so the next shift can find it.
 | Tab | What it does | Handbook section |
 |---|---|---|
 | **Today** | Opening, mid-day and closing checklists with timed cleanliness checks (10AM, 5PM, 7PM to 9PM, 10PM) and a countdown to the next one. Adds notes when something couldn't be done and copies a handover report. | 11, onboarding plan |
-| **Follow-ups** | Every walk-in sign-up, trial, enquiry and new member, each on its own journey: trial reminder → record the outcome (signed, didn't sign, came with friends, no-show) → the right follow-ups, each with the message ready to copy. New members get a welcome and Google review ask, then a PT offer and a referral ask. Tallies trial conversion and why people didn't sign each month. The DSR is still where every lead is recorded. | 4.4, 4.6 |
+| **Prospect & Trial** | Log every enquiry, trial and sign-up as a card with name, contact number, enquiry date, trial date and time, scheduler and remarks. **Check in** a trial when they arrive and they show under "In the gym now" with how long they've been in, a notes box and talking points. **Check out** records "Came for trial 3:05pm–3:45pm (40 min)" in Remarks and asks how it went (signed, didn't sign, came with friends, no-show). Each card shows the next follow-up with its message ready to copy. **Copy row for sheet** copies the row in the online sheet's column order: click the Name cell of an empty row and paste. Cards show whether they're in the sheet yet or changed since. | 4.4, 4.6 |
 | **Payments** | The monthly dues chase. Paste the yellow members (name, phone, amount) from Membr or a spreadsheet. The hub counts down to the 8th at 00:00, gives you one member at a time with the reminder already written (/DuesReminder, or /SecondDeduction on the 7th), opens it in WhatsApp and marks them as sent. Track Reminded, Promised and Paid, and copy a summary for the EOD report. | 7.4, 10 |
 | **Calculators** | Freeze fee, cancellation prorata and quick quotes (including Duo/Trio bundles). Drafts the freeze or cancellation email for you to post in Discord for vetting. | 7.1, 7.2, 8.1 |
 | **Scripts** | Every WhatsApp script, grouped by category, with your name filled in. Edit any of them or add your own. Mark a script as a promotion with start and end dates: it appears on the start date and moves to Expired after the end date. Export the scripts to load them on another computer. | 7, 8, 13 |
@@ -30,7 +30,7 @@ Nowhere. Everything you type is saved in this browser on this computer (localSto
 
 * The page has a security policy that stops the browser from sending anything to the internet. The only address it's allowed to contact is a local AI server on the same computer (`localhost:11434`).
 * No fonts, scripts or images are loaded from the web.
-* Follow-ups use a first name or initials only, and the "looking for" note is blocked if it contains personal details.
+* Prospect & Trial keeps full names and contact numbers because they go into the online sheet. Remarks are blocked if they contain an NRIC or card number.
 * The Payments tab keeps member names, phone numbers and amounts, which is why it lives here and not online. **Open in WhatsApp** hands the message to WhatsApp, the same as typing it yourself. Use **Settings → Delete old data** to clear payment lists older than two months.
 * The private AI refuses questions that contain NRIC, card numbers, phone numbers and similar, and offers to replace them.
 
@@ -51,7 +51,7 @@ The hub adds some messages the handbook doesn't have yet. They show a **draft** 
 
 ## Editing the content
 
-Scripts are edited in the Scripts tab. Checklists, rates, follow-up journeys (the steps and their timings), the dues dates and onboarding steps live in `data.js`. Open it in Notepad, change the text, save and refresh the page. For example, once the manager confirms staff hours, fix the `[staff hours]` placeholder in the `/Changecard` script.
+Scripts are edited in the Scripts tab. Checklists, rates, follow-up journeys (the steps and their timings), the online sheet's columns (`sheet.columns`, in order, with which ones are left blank), the dues dates and onboarding steps live in `data.js`. Open it in Notepad, change the text, save and refresh the page. For example, once the manager confirms staff hours, fix the `[staff hours]` placeholder in the `/Changecard` script.
 
 ## Files
 
