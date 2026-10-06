@@ -24,7 +24,17 @@ Bookmark the page so the next shift can find it.
 
 Anything still open in the handbook's manager checklist shows a yellow **pending CONFIRM #n** badge. The two calculation rules that are still open (partial freeze weeks, prorata divisor) can be switched in Settings once the manager decides.
 
-## Where the data goes
+## Or open it online (GitHub Pages)
+
+The repo can publish this folder to `https://darylhui.github.io/murasaki/` so staff just open a link and always get the latest version.
+
+* **One-time setup:** a private repo needs GitHub Pro for Pages. In the repo, go to **Settings → Pages → Build and deployment → Source** and pick **GitHub Actions**. The workflow in `.github/workflows/pages.yml` then publishes the `shift-hub` folder every time `main` changes. To publish right away, go to **Actions → Deploy Shift Hub to GitHub Pages → Run workflow**.
+* **The page is public.** Anyone with the link can open it, so everything in `data.js` (rates, scripts, checklists, VPA numbers) is readable. The repo itself (source, history, `PITCH.md`) stays private. The page asks search engines not to list it.
+* **Member data still stays on each computer.** The hosted page saves to the browser exactly like the file version. It starts empty: use **Settings → Export backup** on the old copy and **Import backup** on the hosted one.
+* Don't publish any other GitHub Pages site on this account. Sites on `darylhui.github.io` share browser storage, so another site could read the hub's saved data.
+* For the private AI, add `https://darylhui.github.io` to Ollama's `OLLAMA_ORIGINS`.
+
+
 
 Nowhere. Everything you type is saved in this browser on this computer (localStorage).
 
