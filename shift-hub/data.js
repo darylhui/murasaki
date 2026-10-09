@@ -8,7 +8,12 @@
 
 window.AFO = {
   club: {
+    // These are the defaults. Each outlet sets its own under Settings → Outlet;
+    // scripts use [Outlet], [Outlet Short], [Outlet Code], [Outlet Phone],
+    // [Freeze VPA] and [Late VPA] so they follow those settings.
     name: "Anytime Fitness Orchard",
+    short: "AF Orchard",
+    area: "Orchard",
     code: "AFO",
     phone: "+65 8816 8855",
     email: "Orchard@anytimefitness.sg",
@@ -211,18 +216,20 @@ window.AFO = {
   // type "standard" runs all year; type "promo" has optional start and end dates
   // (YYYY-MM-DD) and is hidden once it expires.
   // Placeholders: [Your Name] from Settings, [NAME] the customer's first name,
+  // [Outlet], [Outlet Short], [Outlet Code], [Outlet Phone], [Freeze VPA] and
+  // [Late VPA] from Settings → Outlet,
   // [Month] and [Amount] on the Payments tab.
   // `draft: true` marks new wording that isn't in the handbook yet.
   scripts: [
     {
       key: "/ratesenquiry", cat: "Enquiries", type: "standard",
       when: "Someone asks how much membership costs",
-      text: "Hello! [Your Name] from Anytime Fitness Orchard here! 💜\nThank you for your enquiry 😊\nOur membership rates range from $98 to $158/month, depending on the membership duration and any ongoing promotions.\nWe would love to invite you down for a quick club tour so we can show you around, understand your fitness goals, and recommend the best membership option for you. 😊\nWhat day and time works best for you? I'd be happy to arrange a visit! 💪😊",
+      text: "Hello! [Your Name] from [Outlet] here! 💜\nThank you for your enquiry 😊\nOur membership rates range from $98 to $158/month, depending on the membership duration and any ongoing promotions.\nWe would love to invite you down for a quick club tour so we can show you around, understand your fitness goals, and recommend the best membership option for you. 😊\nWhat day and time works best for you? I'd be happy to arrange a visit! 💪😊",
     },
     {
       key: "/MembershipEnq", cat: "Enquiries", type: "standard",
       when: "Someone asks about joining (interchangeable with /ratesenquiry)",
-      text: "Hi there!\n[Your Name] from Anytime Fitness Orchard here. Thanks for your interest in our membership! 💜\nWe'd love to invite you for a free club tour and trial: 10AM to 8PM on weekdays, or 12PM to 5PM on weekends.\nJust let us know when you'd like to drop by! Remember to wear gym attire with closed-toe shoes and bring a towel.\nSee you soon! 💪😊",
+      text: "Hi there!\n[Your Name] from [Outlet] here. Thanks for your interest in our membership! 💜\nWe'd love to invite you for a free club tour and trial: 10AM to 8PM on weekdays, or 12PM to 5PM on weekends.\nJust let us know when you'd like to drop by! Remember to wear gym attire with closed-toe shoes and bring a towel.\nSee you soon! 💪😊",
     },
     {
       key: "/DetailedRatesEnq", cat: "Enquiries", type: "standard",
@@ -233,28 +240,28 @@ window.AFO = {
     {
       key: "/Trialupdated", cat: "Trials", type: "standard",
       when: "A trial request comes in from the AF website",
-      text: "Hi [NAME]! 👋\n[Your Name] from Anytime Fitness Orchard here 💜\nThank you for your trial request! We're excited to have you visit us 😊\nOur trial hours are 10:00AM to 8:00PM on weekdays and 12:00PM to 5:00PM on weekends. Kindly come dressed in gym-appropriate attire and covered shoes 👟\nDuring your visit, we'll also be happy to show you around the club, share more about our facilities and membership options, and answer any questions you may have.\nCould you let us know your preferred day and time for the trial? We'll make the necessary arrangements for you.\nLooking forward to welcoming you to the club! 💪😊",
+      text: "Hi [NAME]! 👋\n[Your Name] from [Outlet] here 💜\nThank you for your trial request! We're excited to have you visit us 😊\nOur trial hours are 10:00AM to 8:00PM on weekdays and 12:00PM to 5:00PM on weekends. Kindly come dressed in gym-appropriate attire and covered shoes 👟\nDuring your visit, we'll also be happy to show you around the club, share more about our facilities and membership options, and answer any questions you may have.\nCould you let us know your preferred day and time for the trial? We'll make the necessary arrangements for you.\nLooking forward to welcoming you to the club! 💪😊",
     },
     {
       key: "/Trialfollowup", cat: "Trials", type: "standard",
       when: "Following up after a trial, within 3 days",
-      text: "Hello there! [Your Name] from AF Orchard here 💜 Hope you had a good workout with us during your trial the other day 💪\nJust checking in to see how you're feeling about signing up with us. No pressure at all, and I'm happy to help if you have any questions!",
+      text: "Hello there! [Your Name] from [Outlet Short] here 💜 Hope you had a good workout with us during your trial the other day 💪\nJust checking in to see how you're feeling about signing up with us. No pressure at all, and I'm happy to help if you have any questions!",
     },
     {
       key: "/Onlinesignup", cat: "Members", type: "standard",
       when: "A prospect wants to sign up without coming in. Remind them to delete card details afterwards.",
-      text: "Great! 😊\nTo get your membership set up, kindly provide the following details:\nPersonal Details\nFull Name:\nResidential Address (Full Address):\nPostal Code:\nEmail Address:\nDate of Birth (DD/MM/YYYY):\nEmergency Contact\nName:\nContact Number:\nRelationship (e.g. Spouse, Parent, Friend):\nBilling Details\n16-Digit Credit/Debit Card Number:\nExpiry Date (MM/YY):\nName on Card:\nOnce we receive the above information, we'll prepare your membership accordingly.\nShould you have any questions during the process, feel free to let us know. We look forward to welcoming you to the Anytime Fitness Orchard family! 💜",
+      text: "Great! 😊\nTo get your membership set up, kindly provide the following details:\nPersonal Details\nFull Name:\nResidential Address (Full Address):\nPostal Code:\nEmail Address:\nDate of Birth (DD/MM/YYYY):\nEmergency Contact\nName:\nContact Number:\nRelationship (e.g. Spouse, Parent, Friend):\nBilling Details\n16-Digit Credit/Debit Card Number:\nExpiry Date (MM/YY):\nName on Card:\nOnce we receive the above information, we'll prepare your membership accordingly.\nShould you have any questions during the process, feel free to let us know. We look forward to welcoming you to the [Outlet] family! 💜",
     },
     {
       key: "/Changecard", cat: "Members", type: "standard",
       when: "A member wants to update their card",
       pending: "CONFIRM #12, #13",
-      text: "Hello, [Your Name] here from AF Orchard. You may change your card via these 3 options during our staff hours from [staff hours] daily:\n1. WhatsApp us your 16-digit card number and expiry date. You may delete your message afterwards;\n2. Call us to relay your card details; or\n3. Come down to the gym during staff hours to change your card.",
+      text: "Hello, [Your Name] here from [Outlet Short]. You may change your card via these 3 options during our staff hours from [staff hours] daily:\n1. WhatsApp us your 16-digit card number and expiry date. You may delete your message afterwards;\n2. Call us to relay your card details; or\n3. Come down to the gym during staff hours to change your card.",
     },
     {
       key: "/SecondDeduction", cat: "Payments", type: "standard",
       when: "Late payment reminder, sent on the 7th of every month",
-      text: "Greetings, [Your Name] here from Anytime Fitness Orchard! Do remember to make payment by today, as EZpay will be attempting a second deduction tonight. If it fails, a $15.26 late payment fee will be added. You can make payment to VPA: UEN202106218Z (Watchtower Gyms) and send us the screenshot so we can clear it on our side.",
+      text: "Greetings, [Your Name] here from [Outlet]! Do remember to make payment by today, as EZpay will be attempting a second deduction tonight. If it fails, a $15.26 late payment fee will be added. You can make payment to VPA: [Late VPA] and send us the screenshot so we can clear it on our side.",
     },
     {
       key: "/BundlePromo", cat: "Promotions", type: "promo",
@@ -265,42 +272,42 @@ window.AFO = {
     {
       key: "/DuesReminder", cat: "Payments", type: "standard", draft: true, pending: "CONFIRM #1",
       when: "Members whose payment failed on the 1st (reminder before the 7th)",
-      text: "Hi [NAME], [Your Name] here from Anytime Fitness Orchard 💜 Just a friendly reminder that your [Month] membership payment of $[Amount] didn't go through on the 1st. You can pay to VPA: UEN202106218Z (Watchtower Gyms) and send us the screenshot, or update your card during staff hours. Please settle it by the 7th to avoid a $15.26 late payment fee. Thank you! 😊",
+      text: "Hi [NAME], [Your Name] here from [Outlet] 💜 Just a friendly reminder that your [Month] membership payment of $[Amount] didn't go through on the 1st. You can pay to VPA: [Late VPA] and send us the screenshot, or update your card during staff hours. Please settle it by the 7th to avoid a $15.26 late payment fee. Thank you! 😊",
     },
     {
       key: "/TrialReminder", cat: "Trials", type: "standard", draft: true,
       when: "The day before a booked trial",
-      text: "Hi [NAME]! [Your Name] from Anytime Fitness Orchard here 💜 Just a reminder about your trial with us tomorrow. Please come in gym attire with covered shoes and bring a towel 👟 See you then! 💪😊",
+      text: "Hi [NAME]! [Your Name] from [Outlet] here 💜 Just a reminder about your trial with us tomorrow. Please come in gym attire with covered shoes and bring a towel 👟 See you then! 💪😊",
     },
     {
       key: "/TrialNoSign", cat: "Trials", type: "standard", draft: true,
       when: "The day after a trial or tour that didn't end in a sign-up. Find out what they're looking for.",
-      text: "Hi [NAME]! [Your Name] from AF Orchard here 💜 Thanks again for coming down to train with us! We'd love to hear how you found the club. Was there anything you were looking for that we didn't get to show you, or anything holding you back? Happy to help with any questions 😊",
+      text: "Hi [NAME]! [Your Name] from [Outlet Short] here 💜 Thanks again for coming down to train with us! We'd love to hear how you found the club. Was there anything you were looking for that we didn't get to show you, or anything holding you back? Happy to help with any questions 😊",
     },
     {
       key: "/TrialFriends", cat: "Promotions", type: "promo", draft: true, pending: "CONFIRM #16",
       when: "Someone trialled with friends and isn't keen yet. Check the bundle is still running.",
-      text: "Hi [NAME]! [Your Name] from AF Orchard here 💜 Great having you and your friends in for a workout! If you're thinking of training together, we have a bundle promotion running: sign up as a Duo (10% off) or Trio (15% off) and the joining fee is waived. Let me know if you'd like the details! 💪😊",
+      text: "Hi [NAME]! [Your Name] from [Outlet Short] here 💜 Great having you and your friends in for a workout! If you're thinking of training together, we have a bundle promotion running: sign up as a Duo (10% off) or Trio (15% off) and the joining fee is waived. Let me know if you'd like the details! 💪😊",
     },
     {
       key: "/Reengage", cat: "Enquiries", type: "standard", draft: true,
       when: "An enquiry or trial that has gone quiet. Add the current promotion if there is one.",
-      text: "Hi [NAME]! [Your Name] from Anytime Fitness Orchard here 💜 Just checking in: are you still thinking about starting at the gym? We'd love to have you down for a free club tour and trial whenever it suits you. Let me know a day and time that works! 😊",
+      text: "Hi [NAME]! [Your Name] from [Outlet] here 💜 Just checking in: are you still thinking about starting at the gym? We'd love to have you down for a free club tour and trial whenever it suits you. Let me know a day and time that works! 😊",
     },
     {
       key: "/WelcomeReview", cat: "Members", type: "standard", draft: true,
       when: "The day after someone signs up",
-      text: "Hi [NAME]! [Your Name] from Anytime Fitness Orchard here 💜 Welcome to the club! We hope your first sessions have been great 💪 If you've enjoyed it so far, we'd really appreciate a quick Google review. It helps us a lot! [Google review link]\nLet us know if there's anything you need 😊",
+      text: "Hi [NAME]! [Your Name] from [Outlet] here 💜 Welcome to the club! We hope your first sessions have been great 💪 If you've enjoyed it so far, we'd really appreciate a quick Google review. It helps us a lot! [Google review link]\nLet us know if there's anything you need 😊",
     },
     {
       key: "/PTOffer", cat: "Members", type: "standard", draft: true,
       when: "About a week after someone signs up",
-      text: "Hi [NAME]! [Your Name] from AF Orchard here 💜 How's your training going? If you'd like help reaching your goals faster, our personal trainers can put together a plan for you. Would you be keen to try a PT session? 😊",
+      text: "Hi [NAME]! [Your Name] from [Outlet Short] here 💜 How's your training going? If you'd like help reaching your goals faster, our personal trainers can put together a plan for you. Would you be keen to try a PT session? 😊",
     },
     {
       key: "/ReferFriend", cat: "Members", type: "standard", draft: true,
       when: "About two weeks after someone signs up",
-      text: "Hi [NAME]! [Your Name] from AF Orchard here 💜 Hope you're enjoying the club! Know someone who'd like to train with you? Bring them down for a free tour and trial: 10AM to 8PM on weekdays, 12PM to 5PM on weekends 😊",
+      text: "Hi [NAME]! [Your Name] from [Outlet Short] here 💜 Hope you're enjoying the club! Know someone who'd like to train with you? Bring them down for a free tour and trial: 10AM to 8PM on weekdays, 12PM to 5PM on weekends 😊",
     },
   ],
 
