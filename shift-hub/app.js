@@ -337,32 +337,38 @@
     if (!d) return "";
     return (D.sheet && D.sheet.dateFormat) === "D MMM YYYY" ? `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getFullYear()}` : `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
   }
+  const raw = (l, k) => (l.sheetRaw && l.sheetRaw[k]) || "";
   function cell(l, field) {
     switch (field) {
       case "name": return l.name;
       case "phone": return l.phone;
       case "waLink": return l.phone ? `https://wa.me/${waNumber(l.phone)}` : "";
-      case "enquiryDate": return sheetDate(l.enquiryDate);
+      case "enquiryDate": return sheetDate(l.enquiryDate) || raw(l, "enquiryDate");
       case "channel": return l.channel;
       case "scheduler": return l.scheduler;
-      case "trialDate": return sheetDate(l.trialDate);
-      case "trialTime": return hm12(l.trialTime);
-      case "followedUp": return sheetDate(l.followedUp);
+      case "trialDate": return sheetDate(l.trialDate) || raw(l, "trialDate");
+      case "trialTime": return hm12(l.trialTime) || raw(l, "trialTime");
+      case "followedUp": return sheetDate(l.followedUp) || raw(l, "followedUp");
       case "remarks": return l.remarks;
+      // Columns the hub doesn't fill: whatever came in from the sheet goes back unchanged.
+      case "xWaLink": return (l.sheetExtra && l.sheetExtra.waLink) || "";
+      case "xFoundUs": return (l.sheetExtra && l.sheetExtra.foundUs) || "";
+      case "xSchedule": return (l.sheetExtra && l.sheetExtra.scheduleAppt) || "";
       default: return "";
     }
   }
   // The online Prospect & Trial sheet's columns, in order. This is fixed on
   // purpose: every copied row has exactly these 11 cells, whatever type of
   // prospect it is or what's been filled in. A column with nothing to put in
-  // it is left blank, never dropped.
+  // it is left blank, never dropped. The hub never fills the three x* columns
+  // itself; it only writes back what was imported from the sheet.
   const SHEET_COLUMNS = [
     { label: "Name", field: "name" },
     { label: "Contact Number", field: "phone" },
-    { label: "Whatsapp Link", field: "" },
+    { label: "Whatsapp Link", field: "xWaLink" },
     { label: "Date of Enquiry", field: "enquiryDate" },
-    { label: "How did the prospect find out about us", field: "" },
-    { label: "Schedule for Appt", field: "" },
+    { label: "How did the prospect find out about us", field: "xFoundUs" },
+    { label: "Schedule for Appt", field: "xSchedule" },
     { label: "Scheduler", field: "scheduler" },
     { label: "Trial Date", field: "trialDate" },
     { label: "Trial Time", field: "trialTime" },
@@ -383,6 +389,201 @@
   const sheetRow = (l) => sheetCells(l).join("\t");
   const sheetState = (l) => (!l.loggedAt ? "new" : (l.updatedAt || 0) > l.loggedAt ? "changed" : "logged");
   const unlogged = () => S.leads.filter((l) => sheetState(l) !== "logged");
+
+  // ---- sync with the Excel sheet
+  // Each entry can carry `sheetRow`, its row number in the Excel sheet. Rows
+  // copied back are laid out by row number, so one paste into the Name cell of
+  // the first row updates every row in place. Values the hub doesn't manage
+  // (Whatsapp Link, How did they find us, Schedule for Appt) are kept from the
+  // import in `sheetExtra` and written back unchanged. Dates or times the hub
+  // can't read are kept as typed in `sheetRaw` and written back as-is.
+  const rowsInUse = () => S.leads.filter((l) => l.sheetRow).map((l) => l.sheetRow);
+  const nextRow = () => Math.max(Math.max(1, ...rowsInUse()) + 1, Number(S.settings.nextSheetRow) || 2);
+  const leadAtRow = (r, except) => S.leads.find((l) => l.sheetRow === r && l.id !== except);
+
+  // Splits text copied from Excel or Google Sheets into rows of cells.
+  // Cells that contain line breaks or tabs come wrapped in double quotes.
+  function parseTSV(text) {
+    const rows = [];
+    let row = [], cellText = "", i = 0, quoted = false;
+    text = text.replace(/\r\n?/g, "\n");
+    while (i < text.length) {
+      const ch = text[i];
+      if (quoted) {
+        if (ch === '"' && text[i + 1] === '"') { cellText += '"'; i += 2; continue; }
+        if (ch === '"') { quoted = false; i++; continue; }
+        cellText += ch; i++; continue;
+      }
+      if (ch === '"' && cellText === "") { quoted = true; i++; continue; }
+      if (ch === "\t") { row.push(cellText); cellText = ""; i++; continue; }
+      if (ch === "\n") { row.push(cellText); rows.push(row); row = []; cellText = ""; i++; continue; }
+      cellText += ch; i++;
+    }
+    if (cellText !== "" || row.length) { row.push(cellText); rows.push(row); }
+    return rows;
+  }
+
+  const MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
+  // Reads a date the way the sheet shows it. Day comes first (Singapore), unless
+  // the second number can only be a day.
+  function parseSheetDate(s) {
+    s = (s || "").trim();
+    if (!s) return "";
+    let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+    if (m) return okDate(+m[1], +m[2], +m[3]);
+    m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
+    if (m) {
+      let d = +m[1], mo = +m[2];
+      if (mo > 12 && d <= 12) [d, mo] = [mo, d];
+      return okDate(m[3].length === 2 ? 2000 + +m[3] : +m[3], mo, d);
+    }
+    m = s.match(/^(\d{1,2})[\s-]+([A-Za-z]{3,9})\.?[\s,-]*(\d{2,4})?$/);
+    const monthOf = (w) => MON[w.toLowerCase()] || MON[w.slice(0, 3).toLowerCase()];
+    if (m && monthOf(m[2])) return okDate(m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : new Date().getFullYear(), monthOf(m[2]), +m[1]);
+    m = s.match(/^([A-Za-z]{3,9})\s+(\d{1,2}),?\s*(\d{4})?$/);
+    if (m && monthOf(m[1])) return okDate(m[3] ? +m[3] : new Date().getFullYear(), monthOf(m[1]), +m[2]);
+    if (/^\d{5}$/.test(s)) return ymd(addDays(new Date(1899, 11, 30, 12), +s)); // Excel date serial
+    return null;
+  }
+  function okDate(y, mo, d) {
+    const x = new Date(y, mo - 1, d, 12);
+    return x.getMonth() === mo - 1 && x.getDate() === d ? ymd(x) : null;
+  }
+  function parseSheetTime(s) {
+    s = (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+    if (!s) return "";
+    const m = s.match(/^(\d{1,2})(?:[:.](\d{2}))?(?::\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?$/);
+    if (!m) return null;
+    let h = +m[1];
+    const ap = m[3] && m[3][0];
+    if (ap === "p" && h < 12) h += 12;
+    if (ap === "a" && h === 12) h = 0;
+    return h < 24 && (m[2] || "00") < "60" ? `${pad(h)}:${m[2] || "00"}` : null;
+  }
+
+  const normName = (s) => (s || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const digits = (s) => (s || "").replace(/\D/g, "").replace(/^65(?=\d{8}$)/, "");
+
+  // Turns pasted text into a plan: one item per sheet row, saying what will
+  // happen to it. Nothing changes until the plan is applied.
+  function planImport(text, startRow) {
+    const plan = [], notes = [];
+    const claimed = new Set();
+    parseTSV(text).forEach((cells, i) => {
+      const row = startRow + i;
+      const c = cells.map((x) => (x || "").trim());
+      if (!c.some(Boolean)) return; // blank row: keeps its place, nothing to import
+      if (i === 0 && /^name$/i.test(c[0])) return; // header row
+      if (c.length > 11 && c.slice(11).some(Boolean)) notes.push(`Row ${row} has more than 11 columns. Only the first 11 were read.`);
+      while (c.length < 11) c.push("");
+      const [name, phone, waLink, enq, foundUs, schedule, scheduler, tDate, tTime, followed, remarks] = c;
+      if (!name) { notes.push(`Row ${row} has no name, so it was skipped.`); return; }
+      const data = { name, phone, scheduler, remarks, sheetExtra: { waLink, foundUs, scheduleAppt: schedule }, sheetRaw: {} };
+      for (const [k, v, fn] of [["enquiryDate", enq, parseSheetDate], ["trialDate", tDate, parseSheetDate], ["followedUp", followed, parseSheetDate], ["trialTime", tTime, parseSheetTime]]) {
+        const p = fn(v);
+        data[k] = p || "";
+        if (p === null) data.sheetRaw[k] = v; // couldn't read it: keep it exactly as typed
+      }
+      // The same person already in the hub: same name, and the same number if both have one.
+      const same = S.leads.filter((l) => !claimed.has(l.id) && normName(l.name) === normName(name) && (!digits(phone) || !digits(l.phone) || digits(l.phone) === digits(phone)));
+      const match = same.find((l) => l.sheetRow === row) || same[0] || null;
+      if (match) claimed.add(match.id);
+      plan.push({ row, data, match, action: match ? "update" : "new" });
+    });
+    // Someone else in the hub sitting on a row that's now taken loses that row number.
+    plan.forEach((p) => {
+      const o = leadAtRow(p.row, p.match && p.match.id);
+      p.occupant = o && !claimed.has(o.id) ? o : null;
+    });
+    return { plan, notes };
+  }
+
+  function applyImport(plan) {
+    const now = Date.now();
+    const today = todayStr();
+    const recent = (d) => d && dayDiff(parse(d), parse(today)) <= 14;
+    let added = 0, updated = 0;
+    plan.forEach(({ row, data, match, occupant }) => {
+      if (occupant && occupant !== match) occupant.sheetRow = null; // that row now belongs to someone else
+      let l = match;
+      if (l) {
+        const oldTrial = l.trialDate;
+        Object.assign(l, data, { sheetRow: row });
+        if (data.trialDate && data.trialDate !== oldTrial && data.trialDate >= today && !l.closed) startJourney(l, "trial", data.trialDate, "Trial date from sheet");
+        updated++;
+      } else {
+        l = { id: uid(), v: 4, type: "imported", created: today, history: [], channel: "", cat: "WARM", ...data, sheetRow: row };
+        const signed = /\bsigned\b/i.test(data.remarks) && !/(didn.?t|did not|not|never)\s+sign/i.test(data.remarks);
+        if (signed) { startJourney(l, "member", data.trialDate || data.enquiryDate || today); l.closed = true; l.outcome = "Signed (from sheet)"; }
+        else if (data.trialDate && data.trialDate >= today) startJourney(l, "trial", data.trialDate, "Imported from sheet");
+        else if (data.trialDate && recent(data.trialDate)) { l.trialOutcome = "nosign"; startJourney(l, "nosign", data.trialDate, "Imported from sheet"); }
+        else if (!data.trialDate && recent(data.enquiryDate)) startJourney(l, "enquiry", data.enquiryDate, "Imported from sheet");
+        else { startJourney(l, "enquiry", data.enquiryDate || today); l.closed = true; l.outcome = "Imported from sheet (older than 2 weeks)"; }
+        S.leads.push(l); added++;
+      }
+      l.updatedAt = now; l.loggedAt = now;
+    });
+    return { added, updated };
+  }
+
+  // Rows from..to, one line per sheet row. A row with no entry in the hub is
+  // copied as 11 empty cells so every other row still lands in its place.
+  function exportRange(from, to) {
+    const lines = [], gaps = [];
+    for (let r = from; r <= to; r++) {
+      const l = leadAtRow(r);
+      if (l) lines.push(sheetRow(l)); else { lines.push("\t".repeat(SHEET_COLUMNS.length - 1)); gaps.push(r); }
+    }
+    return { text: lines.join("\n"), gaps, leads: S.leads.filter((l) => l.sheetRow >= from && l.sheetRow <= to) };
+  }
+  const gapText = (g) => (g.length > 8 ? g.slice(0, 8).join(", ") + ` and ${g.length - 8} more` : g.join(", "));
+
+  function renderSync() {
+    const rows = rowsInUse();
+    const min = rows.length ? Math.min(...rows) : 0, max = rows.length ? Math.max(...rows) : 0;
+    const from = Number(S.ui.expFrom) || min, to = Number(S.ui.expTo) || max;
+    const ex = rows.length ? exportRange(Math.min(from, to), Math.max(from, to)) : null;
+    const unnumbered = S.leads.filter((l) => !l.sheetRow).length;
+    const pendingRows = unlogged().filter((l) => l.sheetRow).map((l) => l.sheetRow);
+    const imp = S.ui.impText ? planImport(S.ui.impText, Number(S.ui.impStart) || 1) : null;
+    const actionBadge = (p) => p.action === "new" ? '<span class="badge ok">new</span>' : `<span class="badge">update</span>${p.match.sheetRow && p.match.sheetRow !== p.row ? ` <span class="small muted">was row ${p.match.sheetRow}</span>` : ""}`;
+    return `<details class="card sync" ${S.ui.syncOpen ? "open" : ""} data-sync>
+      <summary><h2>Sync with your Excel sheet</h2>
+        <span class="small muted">${rows.length ? `${rows.length} entries on rows ${min}–${max}` : "No row numbers yet"}${pendingRows.length ? ` · <b class="warn-text">${pendingRows.length} changed since last copy</b>` : ""}</span></summary>
+      <div class="grid grid-2" style-top>
+        <div class="stack">
+          <h3>1 · Paste in from Excel</h3>
+          <p class="small muted">In your sheet, select the rows (all 11 columns, Name to Remarks; the header row is fine too) and copy. Paste them here.</p>
+          <textarea id="imp-text" rows="5" placeholder="Paste rows from your sheet here">${esc(S.ui.impText || "")}</textarea>
+          <label class="field">Row number of the first row you copied<input type="number" id="imp-start" min="1" value="${esc(S.ui.impStart || "")}" placeholder="e.g. 1 if you copied the header row"></label>
+          ${imp ? `${imp.notes.map((n) => `<div class="notice warn">${esc(n)}</div>`).join("")}
+            ${imp.plan.length ? `<div class="table-wrap"><table class="sheet-preview"><thead><tr><th>Row</th><th>Name</th><th>Contact</th><th>Enquiry</th><th>Trial</th><th></th></tr></thead><tbody>
+              ${imp.plan.map((p) => `<tr><td>${p.row}</td><td>${esc(p.data.name)}</td><td>${esc(p.data.phone)}</td><td>${esc(sheetDate(p.data.enquiryDate) || p.data.sheetRaw.enquiryDate || "")}</td><td>${esc(sheetDate(p.data.trialDate) || p.data.sheetRaw.trialDate || "")} ${esc(hm12(p.data.trialTime) || p.data.sheetRaw.trialTime || "")}</td><td>${actionBadge(p)}${p.occupant ? ` <span class="small overdue">replaces ${esc(p.occupant.name)}</span>` : ""}</td></tr>`).join("")}
+              </tbody></table></div>
+              <div class="row"><button class="btn btn-primary" data-act="imp-apply">Import ${imp.plan.length} row${imp.plan.length > 1 ? "s" : ""}</button><button class="btn btn-ghost" data-act="imp-clear">Clear</button>
+              <span class="small muted">${imp.plan.filter((p) => p.action === "new").length} new · ${imp.plan.filter((p) => p.action === "update").length} updated</span></div>
+              <p class="small muted">New entries from the last 2 weeks get follow-ups. Older ones, and anyone whose remarks say they signed, are filed under Finished.</p>` : `<div class="notice">No rows with a name found.</div>`}` : ""}
+        </div>
+        <div class="stack">
+          <h3>2 · Copy back to Excel</h3>
+          ${rows.length ? `<div class="fields">
+              <label class="field">From row<input type="number" id="exp-from" min="1" value="${from}"></label>
+              <label class="field">To row<input type="number" id="exp-to" min="1" value="${to}"></label>
+            </div>
+            <div class="row"><button class="btn btn-primary" data-act="exp-copy">Copy rows ${Math.min(from, to)}–${Math.max(from, to)}</button>
+              ${from !== min || to !== max ? `<button class="btn btn-ghost" data-act="exp-all">All rows (${min}–${max})</button>` : ""}</div>
+            <p class="small">Then in Excel, click the <b>Name</b> cell in <b>row ${Math.min(from, to)}</b> and paste. Each row lands on its own row number.</p>
+            ${ex.gaps.length ? `<div class="notice warn">${ex.gaps.length > 1 ? `Rows ${esc(gapText(ex.gaps))} aren't` : `Row ${ex.gaps[0]} isn't`} in the hub, so pasting will blank ${ex.gaps.length > 1 ? "those rows" : "that row"} in Excel. Import ${ex.gaps.length > 1 ? "them" : "it"} first, or copy a range that skips ${ex.gaps.length > 1 ? "them" : "it"}.</div>` : ""}`
+            : `<p class="small muted">Import your sheet first, or give your entries row numbers below.</p>`}
+          ${unnumbered ? `<div class="notice">${unnumbered} entr${unnumbered > 1 ? "ies don't" : "y doesn't"} have a row number yet.
+            <div class="row" style-top><label class="field">Starting at row<input type="number" id="num-start" min="1" value="${nextRow()}"></label>
+            <button class="btn btn-sm" data-act="num-assign">Number them</button></div></div>` : ""}
+          <label class="field">Next new prospect goes in row<input type="number" id="next-row" min="2" value="${nextRow()}"></label>
+        </div>
+      </div>
+    </details>`;
+  }
+
 
   // Blocks NRIC and card details in remarks. Names and numbers are allowed:
   // they belong in the sheet.
@@ -406,6 +607,7 @@
     const j = journey(l.stage);
     const isProspect = j.kind === "prospect";
     const chips = [];
+    chips.push(l.sheetRow ? `<span class="chip chip-row" title="Row number in your Excel sheet">Row ${l.sheetRow}</span>` : `<span class="chip" title="No row number in the Excel sheet yet">No row</span>`);
     if (l.trialDate) chips.push(`<span class="chip ${l.trialDate === todayStr() ? "chip-accent" : ""}">Trial ${l.trialDate === todayStr() ? "today" : shortDate(parse(l.trialDate))}${l.trialTime ? " · " + esc(hm12(l.trialTime)) : ""}</span>`);
     chips.push(`<span class="chip">Enquired ${esc(shortDate(parse(l.enquiryDate)))}</span>`);
     if (l.channel) chips.push(`<span class="chip">${esc(l.channel)}</span>`);
@@ -501,6 +703,7 @@
         ${tile(dueFollowups().length, "follow-ups due")}
         ${tile(pending, "not in the sheet yet", pending ? "tile-warn" : "")}
       </div>
+      ${renderSync()}
       ${S.ui.leadDraft ? renderLeadEditor() : ""}
       ${gym.length || outcome.length ? `<section class="band band-live"><div class="band-head"><h2><span class="live-dot" aria-hidden="true"></span>In the gym now</h2>
           <p class="small muted">Good moment for a chat: ${esc(D.trialTalk[0])}</p></div>
@@ -513,11 +716,11 @@
           <div class="seg" role="group" aria-label="Show">${segBtn("due", "Due now")}${segBtn("trial", "Trials booked")}${segBtn("prospect", "Prospects")}${segBtn("member", "New members")}${segBtn("all", "All")}</div>
           <span class="spacer"></span>
           <input type="text" id="fu-q" class="w-auto" placeholder="Search name or number" value="${esc(S.ui.fuQ || "")}">
-          ${pending ? `<button class="btn" data-act="lead-rows" title="Copies every row that isn't in the sheet yet">Copy ${pending} new row${pending > 1 ? "s" : ""}</button>` : ""}
+          ${pending ? `<button class="btn" data-act="lead-rows" title="Copies every row from the first to the last changed one, laid out by row number">Copy ${pending} changed row${pending > 1 ? "s" : ""}</button>` : ""}
         </div>
         ${shown.length ? `<div class="lead-grid">${shown.map(({ l }) => leadCard(l)).join("")}</div>` : `<div class="empty card">${q ? `No one matches "${esc(q)}".` : f === "due" ? "Nothing due right now." : "No one here yet."}</div>`}
       </section>
-      <div class="grid grid-2">
+      <div class="grid">
         <section class="card">
           <h2>This month</h2>
           <div class="stats">
@@ -528,15 +731,6 @@
           </div>
           <h3 style-top>Why they didn't sign</h3>
           ${st.reasons.length ? `<ul class="plain small">${st.reasons.map(([r, c]) => `<li>${esc(r)}: <b>${c}</b></li>`).join("")}</ul>` : `<p class="small muted">Pick a reason under "Why not?" on a card and it's counted here.</p>`}
-        </section>
-        <section class="card">
-          <h2>Pasting into the sheet</h2>
-          <ol class="plain small">
-            <li>Click <b>Copy row for sheet</b> on a card (or <b>Copy new rows</b> for all of them).</li>
-            <li>In the online sheet, click the <b>Name</b> cell of the first empty row.</li>
-            <li>Paste (Ctrl+V). Each value lands in its own column.</li>
-          </ol>
-          <p class="small muted" style-top>Every row has these ${SHEET_COLUMNS.length} columns in this order: ${SHEET_COLUMNS.map((c) => (c.field ? esc(c.label) : `<s>${esc(c.label)}</s>`)).join(" · ")}. Crossed-out columns are always left blank.</p>
           <p class="small muted" style-top>${pendingBadge("CONFIRM #6")} Follow-up timings follow handbook 4.6.</p>
         </section>
       </div>
@@ -563,6 +757,7 @@
         ${showTrial ? f("trialDate", "Trial date", "date") + f("trialTime", "Trial time", "time") : ""}
         ${f("scheduler", "Scheduler")}
         ${!isNew ? f("followedUp", "Followed up", "date") : ""}
+        ${f("sheetRow", "Row in Excel sheet", "number", 'min="1" step="1"')}
         ${type.journey !== "member" || !isNew ? `<label class="field">Category<select data-ld="cat">${["HOT", "WARM", "COLD"].map((c) => `<option ${d.cat === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>` : ""}
       </div>
       <div class="tags" style-top>${tagChips(d.remarks, "ld-tag")}</div>
@@ -581,7 +776,7 @@
     const t = D.customerTypes.find((x) => x.id === typeId) || D.customerTypes[0];
     return { id: null, type: t.id, name: "", phone: "", enquiryDate: todayStr(), channel: t.source || "WhatsApp",
       trialDate: t.trial ? (t.id === "trial-booked" ? ymd(addDays(new Date(), 1)) : todayStr()) : "", trialTime: "",
-      scheduler: S.settings.name || "", cat: "WARM", remarks: "" };
+      scheduler: S.settings.name || "", cat: "WARM", remarks: "", sheetRow: String(nextRow()) };
   }
 
   function saveLead() {
@@ -591,10 +786,16 @@
     if (!d.name) { msg.textContent = "Add their name."; return; }
     if (d.phone && waNumber(d.phone).length < 8) { msg.textContent = "That contact number looks too short."; return; }
     if (sensitive(d.remarks || "")) { msg.textContent = "Remarks look like they contain an NRIC or card number. Remove it."; return; }
-    const fields = ["name", "phone", "enquiryDate", "channel", "trialDate", "trialTime", "scheduler", "followedUp", "cat", "remarks"];
+    const rowNum = String(d.sheetRow || "").trim() === "" ? null : Number(d.sheetRow);
+    if (rowNum !== null && !(Number.isInteger(rowNum) && rowNum >= 1)) { msg.textContent = "The row number must be a whole number, 1 or more."; return; }
+    const taken = rowNum && leadAtRow(rowNum, d.id);
+    if (taken) { msg.textContent = `Row ${rowNum} is already ${taken.name}. Pick another row, or change theirs first.`; return; }
+    d.sheetRow = rowNum;
+    const fields = ["name", "phone", "enquiryDate", "channel", "trialDate", "trialTime", "scheduler", "followedUp", "cat", "remarks", "sheetRow"];
     if (d.id) {
       const l = S.leads.find((x) => x.id === d.id);
       const trialMoved = l.stage === "trial" && d.trialDate && d.trialDate !== l.trialDate;
+      ["enquiryDate", "trialDate", "trialTime", "followedUp"].forEach((k) => { if (l.sheetRaw && k in d && d[k] !== l[k]) delete l.sheetRaw[k]; });
       fields.forEach((k) => { if (k in d) l[k] = d[k]; });
       if (trialMoved) startJourney(l, "trial", d.trialDate, "Trial moved");
       touch(l);
@@ -1314,7 +1515,7 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
         const ta = document.querySelector(`[data-remarks="${id}"]`); if (ta) ta.value = l.remarks; break;
       }
       case "ld-cancel": S.ui.leadDraft = null; save(); render(); break;
-      case "lead-edit": { const l = S.leads.find((x) => x.id === id); S.ui.leadDraft = { id: l.id, type: l.type, name: l.name, phone: l.phone, enquiryDate: l.enquiryDate, channel: l.channel, trialDate: l.trialDate || "", trialTime: l.trialTime || "", scheduler: l.scheduler || "", followedUp: l.followedUp || "", cat: l.cat || "WARM", remarks: l.remarks || "" }; save(); render(); window.scrollTo(0, 0); break; }
+      case "lead-edit": { const l = S.leads.find((x) => x.id === id); S.ui.leadDraft = { id: l.id, type: l.type, name: l.name, phone: l.phone, enquiryDate: l.enquiryDate, channel: l.channel, trialDate: l.trialDate || "", trialTime: l.trialTime || "", scheduler: l.scheduler || "", followedUp: l.followedUp || "", cat: l.cat || "WARM", remarks: l.remarks || "", sheetRow: l.sheetRow ? String(l.sheetRow) : "", sheetExtra: l.sheetExtra, sheetRaw: l.sheetRaw }; save(); render(); window.scrollTo(0, 0); break; }
       case "lead-step": { const l = S.leads.find((x) => x.id === id); const n = leadNext(l); if (n) { l.history.push({ d: todayStr(), t: n.action }); l.step++; l.followedUp = todayStr(); touch(l); } save(); render(); break; }
       case "lead-copy": {
         const l = S.leads.find((x) => x.id === id); const n = leadNext(l); const sc = findScript(n.script);
@@ -1338,10 +1539,48 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
       }
       case "lead-signed": { const l = S.leads.find((x) => x.id === id); if (l.stage === "nosign" || l.stage === "friends") { l.trialOutcome = "signed"; l.outcomeDate = todayStr(); } addRemark(l, "Signed"); startJourney(l, "member", todayStr(), "Signed up"); save(); render(); toast(`${l.name} moved to new members`); break; }
       case "lead-close": { const l = S.leads.find((x) => x.id === id); l.closed = true; l.outcome = journey(l.stage).kind === "member" ? "Done" : "Closed, not signing"; save(); render(); break; }
-      case "lead-del": if (confirm("Delete this person from the hub?")) { S.leads = S.leads.filter((x) => x.id !== id); save(); render(); } break;
+      case "lead-del": if (confirm("Delete this person from the hub? If they have a row number, that row will be copied back blank.")) { S.leads = S.leads.filter((x) => x.id !== id); save(); render(); } break;
       case "lead-clear": if (confirm("Delete everyone in the finished list?")) { S.leads = S.leads.filter((l) => leadNext(l)); save(); render(); } break;
-      case "lead-row": { const l = S.leads.find((x) => x.id === id); copy(sheetRow(l), "Row copied. Click the Name cell in the sheet and paste"); l.loggedAt = Date.now(); save(); render(); break; }
-      case "lead-rows": { const list = unlogged(); copy(list.map(sheetRow).join("\n"), `${list.length} rows copied. Click the first empty Name cell and paste`); list.forEach((l) => { l.loggedAt = Date.now(); }); save(); render(); break; }
+      case "lead-row": {
+        const l = S.leads.find((x) => x.id === id);
+        copy(sheetRow(l), l.sheetRow ? `Row copied. In Excel, click the Name cell in row ${l.sheetRow} and paste` : "Row copied. Click the Name cell of an empty row and paste");
+        l.loggedAt = Date.now(); save(); render(); break;
+      }
+      case "lead-rows": {
+        // New entries without a row number get the next free rows first.
+        S.leads.filter((l) => !l.sheetRow && sheetState(l) !== "logged").forEach((l) => { l.sheetRow = nextRow(); });
+        const rs = unlogged().map((l) => l.sheetRow);
+        const from = Math.min(...rs), to = Math.max(...rs);
+        const ex = exportRange(from, to);
+        copy(ex.text, `Rows ${from}–${to} copied. In Excel, click the Name cell in row ${from} and paste`);
+        ex.leads.forEach((l) => { l.loggedAt = Date.now(); });
+        save(); render(); break;
+      }
+      case "exp-copy": case "exp-all": {
+        const rs = rowsInUse();
+        let from = act === "exp-all" ? Math.min(...rs) : Number(S.ui.expFrom) || Math.min(...rs);
+        let to = act === "exp-all" ? Math.max(...rs) : Number(S.ui.expTo) || Math.max(...rs);
+        if (from > to) [from, to] = [to, from];
+        if (act === "exp-all") { S.ui.expFrom = from; S.ui.expTo = to; }
+        const ex = exportRange(from, to);
+        if (ex.gaps.length && !confirm(`${ex.gaps.length > 1 ? `Rows ${gapText(ex.gaps)} aren't` : `Row ${ex.gaps[0]} isn't`} in the hub, so pasting will blank ${ex.gaps.length > 1 ? "them" : "it"} in Excel. Copy anyway?`)) break;
+        copy(ex.text, `Rows ${from}–${to} copied. In Excel, click the Name cell in row ${from} and paste`);
+        ex.leads.forEach((l) => { l.loggedAt = Date.now(); });
+        save(); render(); break;
+      }
+      case "imp-apply": {
+        const { plan } = planImport(S.ui.impText || "", Number(S.ui.impStart) || 1);
+        const r = applyImport(plan);
+        S.ui.impText = ""; S.ui.impStart = ""; S.ui.impStartTouched = false; S.ui.expFrom = ""; S.ui.expTo = "";
+        save(); render(); toast(`${r.added} added, ${r.updated} updated from your sheet`); break;
+      }
+      case "imp-clear": S.ui.impText = ""; S.ui.impStart = ""; S.ui.impStartTouched = false; save(); render(); break;
+      case "num-assign": {
+        let r = Number(document.getElementById("num-start").value) || nextRow();
+        S.leads.filter((l) => !l.sheetRow).sort((x, y) => (x.enquiryDate || x.created || "").localeCompare(y.enquiryDate || y.created || ""))
+          .forEach((l) => { while (leadAtRow(r)) r++; l.sheetRow = r++; touch(l); });
+        save(); render(); toast("Row numbers given"); break;
+      }
       case "copy-due": copy(dueFollowups().map(({ l, n }) => `${l.name} (${l.channel}): ${n.action}`).join("\n") || "No follow-ups due.", "Due list copied"); break;
 
       case "dues-filter": S.ui.duesFilter = id; save(); render(); break;
@@ -1447,6 +1686,18 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
     if (t.dataset.sd && t.tagName !== "SELECT") { S.ui.scDraft[t.dataset.sd] = t.value; save(); return; }
     if (t.dataset.ld !== undefined && t.tagName !== "SELECT") { S.ui.leadDraft[t.dataset.ld] = t.value; save(); updateLeadPreview(); return; }
     if (t.dataset.remarks) { const l = S.leads.find((x) => x.id === t.dataset.remarks); l.remarks = t.value; touch(l); save(); return; }
+    if (["imp-text", "imp-start", "exp-from", "exp-to"].includes(t.id)) {
+      if (t.id === "imp-text") {
+        S.ui.impText = t.value;
+        // Copied with the header row? Then the first row is almost always row 1.
+        if (!S.ui.impStartTouched) S.ui.impStart = /^\s*name\t/i.test(t.value) ? "1" : "";
+      }
+      if (t.id === "imp-start") { S.ui.impStart = t.value; S.ui.impStartTouched = true; }
+      if (t.id === "exp-from") S.ui.expFrom = t.value;
+      if (t.id === "exp-to") S.ui.expTo = t.value;
+      save(); rerenderSync(t.id); return;
+    }
+    if (t.id === "next-row") { S.settings.nextSheetRow = t.value; save(); return; }
     if (t.id === "fu-q") {
       S.ui.fuQ = t.value; save();
       const pos = t.selectionStart; render();
@@ -1462,6 +1713,20 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
     const map = { "rd-in": "rd_in", "rd-names": "rd_names", "ai-q": "ai_q" };
     if (map[t.id]) { S.calc[map[t.id]] = t.value; save(); if (t.id.startsWith("rd-")) updateRedact(); }
   });
+
+  // Re-draw just the sync panel, keeping the cursor where it was.
+  function rerenderSync(focusId) {
+    const el = main.querySelector("[data-sync]");
+    if (!el) return;
+    const f = document.getElementById(focusId);
+    const pos = f && f.selectionStart != null && f.type !== "number" ? [f.selectionStart, f.selectionEnd] : null;
+    const box = document.createElement("div");
+    box.innerHTML = renderSync();
+    el.replaceWith(box.firstElementChild);
+    const g = document.getElementById(focusId);
+    if (g) { g.focus(); if (pos) g.setSelectionRange(pos[0], pos[1]); }
+  }
+  main.addEventListener("toggle", (e) => { if (e.target.matches && e.target.matches("[data-sync]")) { S.ui.syncOpen = e.target.open; save(); } }, true);
 
   main.addEventListener("change", (e) => {
     const t = e.target;

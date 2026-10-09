@@ -24,6 +24,21 @@ Bookmark the page so the next shift can find it.
 
 Anything still open in the handbook's manager checklist shows a yellow **pending CONFIRM #n** badge. The two calculation rules that are still open (partial freeze weeks, prorata divisor) can be switched in Settings once the manager decides.
 
+## Syncing with your Excel sheet
+
+On **Prospect & Trial**, open **Sync with your Excel sheet**. Every entry has a **row number** that matches its row in your Excel sheet. It shows on each card, and you can change it under **Edit**.
+
+**Paste in from Excel.** In your sheet, select the rows from Name to Remarks (including the header row is fine) and copy. Paste into **1 · Paste in from Excel**, and type the row number of the first row you copied (it fills in 1 when the header row is included). Check the preview, then click **Import**.
+
+* People already in the hub are updated; everyone else is added. A person is matched by name (and number, if both have one), so moving someone to a different row in Excel just updates their row number.
+* New entries from the last 2 weeks get follow-ups. Older ones, and anyone whose remarks say they signed, go under Finished.
+* Whatsapp Link, How did the prospect find out about us, and Schedule for Appt are kept exactly as they were in Excel. So are dates or times the hub can't read (like "Yes" under Followed Up).
+
+**Copy back to Excel.** In **2 · Copy back to Excel**, pick the rows (all of them by default) and click **Copy rows**. In Excel, click the **Name** cell in the first of those rows and paste: every row lands on its own row number, in the same 11 columns. **Copy N changed rows** above the cards does the same for just the rows that changed since you last copied.
+
+* A row number with nobody in the hub is copied as an empty row, which blanks that row in Excel. The hub warns you first. Import those rows, or copy a range that skips them.
+* New prospects take the next free row (shown under **Next new prospect goes in row**). Older entries without a row number can be numbered in one go.
+
 ## Or open it online (GitHub Pages)
 
 The hub is published at **https://darylhui.github.io/murasaki/** so staff can just open a link and always get the latest version. Every change merged into `main` under `shift-hub/` goes live within a couple of minutes (`.github/workflows/pages.yml`).
