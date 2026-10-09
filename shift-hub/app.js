@@ -233,6 +233,7 @@
         l.step = (l.done || []).length; l.name = l.who || "?"; l.history = [];
         ["rule", "done", "date", "who"].forEach((k) => delete l[k]);
       }
+      delete l.sheetExtra; // an earlier version echoed these columns back; they're never written now
       if (l.v === 3) {
         l.v = 4;
         l.remarks = (l.remarks || "").replace(/Came for trial (\d{1,2}\/\d{1,2}) \d{1,2}:\d{2}[ap]m(?:–\d{1,2}:\d{2}[ap]m \(\d+ min\))?/g, "Came for trial $1");
@@ -350,25 +351,21 @@
       case "trialTime": return hm12(l.trialTime) || raw(l, "trialTime");
       case "followedUp": return sheetDate(l.followedUp) || raw(l, "followedUp");
       case "remarks": return l.remarks;
-      // Columns the hub doesn't fill: whatever came in from the sheet goes back unchanged.
-      case "xWaLink": return (l.sheetExtra && l.sheetExtra.waLink) || "";
-      case "xFoundUs": return (l.sheetExtra && l.sheetExtra.foundUs) || "";
-      case "xSchedule": return (l.sheetExtra && l.sheetExtra.scheduleAppt) || "";
       default: return "";
     }
   }
   // The online Prospect & Trial sheet's columns, in order. This is fixed on
   // purpose: every copied row has exactly these 11 cells, whatever type of
   // prospect it is or what's been filled in. A column with nothing to put in
-  // it is left blank, never dropped. The hub never fills the three x* columns
-  // itself; it only writes back what was imported from the sheet.
+  // it is left blank, never dropped. Whatsapp Link, How did the prospect find
+  // out about us and Schedule for Appt are never filled by the hub: always blank.
   const SHEET_COLUMNS = [
     { label: "Name", field: "name" },
     { label: "Contact Number", field: "phone" },
-    { label: "Whatsapp Link", field: "xWaLink" },
+    { label: "Whatsapp Link", field: "" },
     { label: "Date of Enquiry", field: "enquiryDate" },
-    { label: "How did the prospect find out about us", field: "xFoundUs" },
-    { label: "Schedule for Appt", field: "xSchedule" },
+    { label: "How did the prospect find out about us", field: "" },
+    { label: "Schedule for Appt", field: "" },
     { label: "Scheduler", field: "scheduler" },
     { label: "Trial Date", field: "trialDate" },
     { label: "Trial Time", field: "trialTime" },
@@ -393,10 +390,10 @@
   // ---- sync with the Excel sheet
   // Each entry can carry `sheetRow`, its row number in the Excel sheet. Rows
   // copied back are laid out by row number, so one paste into the Name cell of
-  // the first row updates every row in place. Values the hub doesn't manage
-  // (Whatsapp Link, How did they find us, Schedule for Appt) are kept from the
-  // import in `sheetExtra` and written back unchanged. Dates or times the hub
-  // can't read are kept as typed in `sheetRaw` and written back as-is.
+  // the first row updates every row in place. Whatsapp Link, How did they find
+  // us and Schedule for Appt are never read or written: they're always blank.
+  // Dates or times the hub can't read are kept as typed in `sheetRaw` and
+  // written back as-is.
   const rowsInUse = () => S.leads.filter((l) => l.sheetRow).map((l) => l.sheetRow);
   const nextRow = () => Math.max(Math.max(1, ...rowsInUse()) + 1, Number(S.settings.nextSheetRow) || 2);
   const leadAtRow = (r, except) => S.leads.find((l) => l.sheetRow === r && l.id !== except);
@@ -466,19 +463,61 @@
 
   // Turns pasted text into a plan: one item per sheet row, saying what will
   // happen to it. Nothing changes until the plan is applied.
-  function planImport(text, startRow) {
+  // Which column holds what. A copy from the sheet normally has all 11
+  // columns, but if Whatsapp Link, How did they find us and Schedule for Appt
+  // are hidden or left out, it has 8. With the header row we go by the header
+  // names; without it we work out which of the two layouts it is.
+  const LAYOUT_11 = ["name", "phone", "", "enquiryDate", "", "", "scheduler", "trialDate", "trialTime", "followedUp", "remarks"];
+  const LAYOUT_8 = ["name", "phone", "enquiryDate", "scheduler", "trialDate", "trialTime", "followedUp", "remarks"];
+  const FIELD_LABEL = { name: "Name", phone: "Contact Number", enquiryDate: "Date of Enquiry", scheduler: "Scheduler", trialDate: "Trial Date", trialTime: "Trial Time", followedUp: "Followed Up", remarks: "Remarks" };
+  function headerField(h) {
+    h = (h || "").toLowerCase().replace(/\s+/g, " ").trim();
+    if (!h) return null;
+    if (/whats ?app|link/.test(h)) return "";
+    if (/find out|found us|how did|source/.test(h)) return "";
+    if (/schedule for|appt|appointment/.test(h)) return "";
+    if (/scheduler|scheduled by/.test(h)) return "scheduler";
+    if (/trial/.test(h) && /time/.test(h)) return "trialTime";
+    if (/trial/.test(h)) return "trialDate";
+    if (/follow/.test(h)) return "followedUp";
+    if (/remark|note/.test(h)) return "remarks";
+    if (/enquir|inquir/.test(h)) return "enquiryDate";
+    if (/contact|phone|number|mobile|hp/.test(h)) return "phone";
+    if (/name/.test(h)) return "name";
+    return null;
+  }
+  function detectLayout(rows, mode) {
+    const first = rows.findIndex((r) => r.some((x) => (x || "").trim()));
+    const head = first >= 0 ? rows[first].map(headerField) : [];
+    const isHeader = head[0] === "name" && head.filter((f) => f !== null).length >= 4;
+    if (isHeader && mode === "auto") return { fields: head.map((f) => f || ""), headerAt: first, how: "from the header row" };
+    const data = rows.filter((r, i) => i !== (isHeader ? first : -1) && r.some((x) => (x || "").trim()));
+    if (mode === "11") return { fields: LAYOUT_11, headerAt: isHeader ? first : -1, how: "as all 11 columns" };
+    if (mode === "8") return { fields: LAYOUT_8, headerAt: isHeader ? first : -1, how: "as 8 columns" };
+    const width = Math.max(0, ...data.map((r) => { let n = r.length; while (n && !(r[n - 1] || "").trim()) n--; return n; }));
+    const isDate = (v) => !!parseSheetDate(v);
+    const score8 = data.filter((r) => isDate(r[2])).length, score11 = data.filter((r) => isDate(r[3])).length;
+    const eleven = width >= 10 || (width === 9 && score11 >= score8) || (width <= 8 && score11 > score8 && width > 3);
+    return eleven ? { fields: LAYOUT_11, headerAt: -1, how: "as all 11 columns" } : { fields: LAYOUT_8, headerAt: -1, how: "as 8 columns (no Whatsapp Link, How did they find us or Schedule for Appt)" };
+  }
+
+  function planImport(text, startRow, mode = "auto") {
     const plan = [], notes = [];
     const claimed = new Set();
-    parseTSV(text).forEach((cells, i) => {
+    const rows = parseTSV(text);
+    const layout = detectLayout(rows, mode);
+    rows.forEach((cells, i) => {
       const row = startRow + i;
       const c = cells.map((x) => (x || "").trim());
       if (!c.some(Boolean)) return; // blank row: keeps its place, nothing to import
-      if (i === 0 && /^name$/i.test(c[0])) return; // header row
-      if (c.length > 11 && c.slice(11).some(Boolean)) notes.push(`Row ${row} has more than 11 columns. Only the first 11 were read.`);
-      while (c.length < 11) c.push("");
-      const [name, phone, waLink, enq, foundUs, schedule, scheduler, tDate, tTime, followed, remarks] = c;
+      if (i === layout.headerAt) return;
+      if (c.length > layout.fields.length && c.slice(layout.fields.length).some(Boolean)) notes.push(`Row ${row} has more columns than expected. The extra ones were ignored.`);
+      const v = {};
+      layout.fields.forEach((f, k) => { if (f && !(f in v)) v[f] = c[k] || ""; });
+      const name = v.name || "", phone = v.phone || "", scheduler = v.scheduler || "", remarks = v.remarks || "";
+      const enq = v.enquiryDate || "", tDate = v.trialDate || "", tTime = v.trialTime || "", followed = v.followedUp || "";
       if (!name) { notes.push(`Row ${row} has no name, so it was skipped.`); return; }
-      const data = { name, phone, scheduler, remarks, sheetExtra: { waLink, foundUs, scheduleAppt: schedule }, sheetRaw: {} };
+      const data = { name, phone, scheduler, remarks, sheetRaw: {} };
       for (const [k, v, fn] of [["enquiryDate", enq, parseSheetDate], ["trialDate", tDate, parseSheetDate], ["followedUp", followed, parseSheetDate], ["trialTime", tTime, parseSheetTime]]) {
         const p = fn(v);
         data[k] = p || "";
@@ -495,7 +534,7 @@
       const o = leadAtRow(p.row, p.match && p.match.id);
       p.occupant = o && !claimed.has(o.id) ? o : null;
     });
-    return { plan, notes };
+    return { plan, notes, layout };
   }
 
   function applyImport(plan) {
@@ -545,7 +584,7 @@
     const ex = rows.length ? exportRange(Math.min(from, to), Math.max(from, to)) : null;
     const unnumbered = S.leads.filter((l) => !l.sheetRow).length;
     const pendingRows = unlogged().filter((l) => l.sheetRow).map((l) => l.sheetRow);
-    const imp = S.ui.impText ? planImport(S.ui.impText, Number(S.ui.impStart) || 1) : null;
+    const imp = S.ui.impText ? planImport(S.ui.impText, Number(S.ui.impStart) || 1, S.ui.impLayout || "auto") : null;
     const actionBadge = (p) => p.action === "new" ? '<span class="badge ok">new</span>' : `<span class="badge">update</span>${p.match.sheetRow && p.match.sheetRow !== p.row ? ` <span class="small muted">was row ${p.match.sheetRow}</span>` : ""}`;
     return `<details class="card sync" ${S.ui.syncOpen ? "open" : ""} data-sync>
       <summary><h2>Sync with your Excel sheet</h2>
@@ -556,13 +595,18 @@
           <p class="small muted">In your sheet, select the rows (all 11 columns, Name to Remarks; the header row is fine too) and copy. Paste them here.</p>
           <textarea id="imp-text" rows="5" placeholder="Paste rows from your sheet here">${esc(S.ui.impText || "")}</textarea>
           <label class="field">Row number of the first row you copied<input type="number" id="imp-start" min="1" value="${esc(S.ui.impStart || "")}" placeholder="e.g. 1 if you copied the header row"></label>
-          ${imp ? `${imp.notes.map((n) => `<div class="notice warn">${esc(n)}</div>`).join("")}
-            ${imp.plan.length ? `<div class="table-wrap"><table class="sheet-preview"><thead><tr><th>Row</th><th>Name</th><th>Contact</th><th>Enquiry</th><th>Trial</th><th></th></tr></thead><tbody>
-              ${imp.plan.map((p) => `<tr><td>${p.row}</td><td>${esc(p.data.name)}</td><td>${esc(p.data.phone)}</td><td>${esc(sheetDate(p.data.enquiryDate) || p.data.sheetRaw.enquiryDate || "")}</td><td>${esc(sheetDate(p.data.trialDate) || p.data.sheetRaw.trialDate || "")} ${esc(hm12(p.data.trialTime) || p.data.sheetRaw.trialTime || "")}</td><td>${actionBadge(p)}${p.occupant ? ` <span class="small overdue">replaces ${esc(p.occupant.name)}</span>` : ""}</td></tr>`).join("")}
+          ${imp ? `<label class="field">Columns in what you pasted<select id="imp-layout">
+              <option value="auto" ${(S.ui.impLayout || "auto") === "auto" ? "selected" : ""}>Work it out for me</option>
+              <option value="11" ${S.ui.impLayout === "11" ? "selected" : ""}>All 11 columns (Name to Remarks)</option>
+              <option value="8" ${S.ui.impLayout === "8" ? "selected" : ""}>8 columns (without Whatsapp Link, How did they find us, Schedule for Appt)</option></select></label>
+            <p class="small">Reading it ${esc(imp.layout.how)}: ${imp.layout.fields.map((f) => (f ? esc(FIELD_LABEL[f]) : "<s>skipped</s>")).join(" · ")}</p>
+            ${imp.notes.map((n) => `<div class="notice warn">${esc(n)}</div>`).join("")}
+            ${imp.plan.length ? `<div class="table-wrap"><table class="sheet-preview"><thead><tr><th>Row</th><th>Name</th><th>Contact</th><th>Enquiry</th><th>Scheduler</th><th>Trial date</th><th>Trial time</th><th>Followed up</th><th>Remarks</th><th></th></tr></thead><tbody>
+              ${imp.plan.map((p) => `<tr><td>${p.row}</td><td>${esc(p.data.name)}</td><td>${esc(p.data.phone)}</td><td>${esc(sheetDate(p.data.enquiryDate) || p.data.sheetRaw.enquiryDate || "")}</td><td>${esc(p.data.scheduler)}</td><td>${esc(sheetDate(p.data.trialDate) || p.data.sheetRaw.trialDate || "")}</td><td>${esc(hm12(p.data.trialTime) || p.data.sheetRaw.trialTime || "")}</td><td>${esc(sheetDate(p.data.followedUp) || p.data.sheetRaw.followedUp || "")}</td><td class="wrap">${esc(p.data.remarks)}</td><td>${actionBadge(p)}${p.occupant ? ` <span class="small overdue">replaces ${esc(p.occupant.name)}</span>` : ""}</td></tr>`).join("")}
               </tbody></table></div>
               <div class="row"><button class="btn btn-primary" data-act="imp-apply">Import ${imp.plan.length} row${imp.plan.length > 1 ? "s" : ""}</button><button class="btn btn-ghost" data-act="imp-clear">Clear</button>
               <span class="small muted">${imp.plan.filter((p) => p.action === "new").length} new · ${imp.plan.filter((p) => p.action === "update").length} updated</span></div>
-              <p class="small muted">New entries from the last 2 weeks get follow-ups. Older ones, and anyone whose remarks say they signed, are filed under Finished.</p>` : `<div class="notice">No rows with a name found.</div>`}` : ""}
+              <p class="small muted">New entries from the last 2 weeks get follow-ups. Older ones, and anyone whose remarks say they signed, are filed under Finished. Whatsapp Link, How did they find us and Schedule for Appt are never imported or copied back.</p>` : `<div class="notice">No rows with a name found.</div>`}` : ""}
         </div>
         <div class="stack">
           <h3>2 · Copy back to Excel</h3>
@@ -1515,7 +1559,7 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
         const ta = document.querySelector(`[data-remarks="${id}"]`); if (ta) ta.value = l.remarks; break;
       }
       case "ld-cancel": S.ui.leadDraft = null; save(); render(); break;
-      case "lead-edit": { const l = S.leads.find((x) => x.id === id); S.ui.leadDraft = { id: l.id, type: l.type, name: l.name, phone: l.phone, enquiryDate: l.enquiryDate, channel: l.channel, trialDate: l.trialDate || "", trialTime: l.trialTime || "", scheduler: l.scheduler || "", followedUp: l.followedUp || "", cat: l.cat || "WARM", remarks: l.remarks || "", sheetRow: l.sheetRow ? String(l.sheetRow) : "", sheetExtra: l.sheetExtra, sheetRaw: l.sheetRaw }; save(); render(); window.scrollTo(0, 0); break; }
+      case "lead-edit": { const l = S.leads.find((x) => x.id === id); S.ui.leadDraft = { id: l.id, type: l.type, name: l.name, phone: l.phone, enquiryDate: l.enquiryDate, channel: l.channel, trialDate: l.trialDate || "", trialTime: l.trialTime || "", scheduler: l.scheduler || "", followedUp: l.followedUp || "", cat: l.cat || "WARM", remarks: l.remarks || "", sheetRow: l.sheetRow ? String(l.sheetRow) : "", sheetRaw: l.sheetRaw }; save(); render(); window.scrollTo(0, 0); break; }
       case "lead-step": { const l = S.leads.find((x) => x.id === id); const n = leadNext(l); if (n) { l.history.push({ d: todayStr(), t: n.action }); l.step++; l.followedUp = todayStr(); touch(l); } save(); render(); break; }
       case "lead-copy": {
         const l = S.leads.find((x) => x.id === id); const n = leadNext(l); const sc = findScript(n.script);
@@ -1569,12 +1613,12 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
         save(); render(); break;
       }
       case "imp-apply": {
-        const { plan } = planImport(S.ui.impText || "", Number(S.ui.impStart) || 1);
+        const { plan } = planImport(S.ui.impText || "", Number(S.ui.impStart) || 1, S.ui.impLayout || "auto");
         const r = applyImport(plan);
         S.ui.impText = ""; S.ui.impStart = ""; S.ui.impStartTouched = false; S.ui.expFrom = ""; S.ui.expTo = "";
         save(); render(); toast(`${r.added} added, ${r.updated} updated from your sheet`); break;
       }
-      case "imp-clear": S.ui.impText = ""; S.ui.impStart = ""; S.ui.impStartTouched = false; save(); render(); break;
+      case "imp-clear": S.ui.impText = ""; S.ui.impStart = ""; S.ui.impStartTouched = false; S.ui.impLayout = "auto"; save(); render(); break;
       case "num-assign": {
         let r = Number(document.getElementById("num-start").value) || nextRow();
         S.leads.filter((l) => !l.sheetRow).sort((x, y) => (x.enquiryDate || x.created || "").localeCompare(y.enquiryDate || y.created || ""))
@@ -1690,7 +1734,7 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
       if (t.id === "imp-text") {
         S.ui.impText = t.value;
         // Copied with the header row? Then the first row is almost always row 1.
-        if (!S.ui.impStartTouched) S.ui.impStart = /^\s*name\t/i.test(t.value) ? "1" : "";
+        if (!S.ui.impStartTouched) S.ui.impStart = /^\s*name\s*\t/i.test(t.value) ? "1" : "";
       }
       if (t.id === "imp-start") { S.ui.impStart = t.value; S.ui.impStartTouched = true; }
       if (t.id === "exp-from") S.ui.expFrom = t.value;
@@ -1736,6 +1780,7 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
     if (t.dataset.ld !== undefined && t.tagName === "SELECT") { S.ui.leadDraft[t.dataset.ld] = t.value; save(); updateLeadPreview(); return; }
     if (t.dataset.reason) { const l = S.leads.find((x) => x.id === t.dataset.reason); l.reason = t.value; l.reasonDate = todayStr(); if (t.value) addRemark(l, `Reason: ${t.value}`); save(); render(); return; }
     if (t.dataset.duesStatus) { markDues(duesList().find((x) => x.id === t.dataset.duesStatus), t.value); save(); render(); return; }
+    if (t.id === "imp-layout") { S.ui.impLayout = t.value; save(); rerenderSync("imp-layout"); return; }
     if (t.id === "dues-file") { readFile(t, importMembers); return; }
     if (t.id === "sc-file") {
       readFile(t, (txt) => {

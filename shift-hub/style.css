@@ -366,3 +366,4 @@ details > summary { padding: 2px 0; }
 .warn-text { color: var(--warn); }
 .chip-row { background: var(--accent-soft); color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
 .sync textarea { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; white-space: pre; }
+.sheet-preview td.wrap { white-space: normal; min-width: 180px; }
