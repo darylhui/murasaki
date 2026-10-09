@@ -335,7 +335,7 @@
   function sheetDate(s) {
     const d = parse(s);
     if (!d) return "";
-    return D.sheet.dateFormat === "D MMM YYYY" ? `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getFullYear()}` : `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+    return (D.sheet && D.sheet.dateFormat) === "D MMM YYYY" ? `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getFullYear()}` : `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
   }
   function cell(l, field) {
     switch (field) {
@@ -352,8 +352,35 @@
       default: return "";
     }
   }
-  // Tabs and line breaks inside a value would split it across cells.
-  const sheetRow = (l) => D.sheet.columns.map((c) => String(cell(l, c.field) ?? "").replace(/[\t\r\n]+/g, " ").trim()).join("\t");
+  // The online Prospect & Trial sheet's columns, in order. This is fixed on
+  // purpose: every copied row has exactly these 11 cells, whatever type of
+  // prospect it is or what's been filled in. A column with nothing to put in
+  // it is left blank, never dropped.
+  const SHEET_COLUMNS = [
+    { label: "Name", field: "name" },
+    { label: "Contact Number", field: "phone" },
+    { label: "Whatsapp Link", field: "" },
+    { label: "Date of Enquiry", field: "enquiryDate" },
+    { label: "How did the prospect find out about us", field: "" },
+    { label: "Schedule for Appt", field: "" },
+    { label: "Scheduler", field: "scheduler" },
+    { label: "Trial Date", field: "trialDate" },
+    { label: "Trial Time", field: "trialTime" },
+    { label: "Followed Up", field: "followedUp" },
+    { label: "Remarks", field: "remarks" },
+  ];
+  // Makes a value safe to paste as one cell: tabs and line breaks would split
+  // it across cells, a double quote at the start makes Sheets swallow the
+  // following cells, and = + - @ at the start would be read as a formula.
+  function sheetCell(v) {
+    return String(v ?? "")
+      .replace(/[\t\r\n\u2028\u2029\v\f]+/g, " ")
+      .replace(/"/g, "'")
+      .trim()
+      .replace(/^[=+\-@\s]+/, "");
+  }
+  const sheetCells = (l) => SHEET_COLUMNS.map((c) => sheetCell(cell(l, c.field)));
+  const sheetRow = (l) => sheetCells(l).join("\t");
   const sheetState = (l) => (!l.loggedAt ? "new" : (l.updatedAt || 0) > l.loggedAt ? "changed" : "logged");
   const unlogged = () => S.leads.filter((l) => sheetState(l) !== "logged");
 
@@ -509,7 +536,7 @@
             <li>In the online sheet, click the <b>Name</b> cell of the first empty row.</li>
             <li>Paste (Ctrl+V). Each value lands in its own column.</li>
           </ol>
-          <p class="small muted" style-top>Columns: ${D.sheet.columns.map((c) => (c.field ? esc(c.label) : `<s>${esc(c.label)}</s>`)).join(" · ")}. Crossed-out columns are left blank. Change them in data.js.</p>
+          <p class="small muted" style-top>Every row has these ${SHEET_COLUMNS.length} columns in this order: ${SHEET_COLUMNS.map((c) => (c.field ? esc(c.label) : `<s>${esc(c.label)}</s>`)).join(" · ")}. Crossed-out columns are always left blank.</p>
           <p class="small muted" style-top>${pendingBadge("CONFIRM #6")} Follow-up timings follow handbook 4.6.</p>
         </section>
       </div>
@@ -542,12 +569,12 @@
       <label class="field" style-top>Remarks<textarea data-ld="remarks" rows="2" placeholder="Tap the tags above, or type anything else">${esc(d.remarks || "")}</textarea></label>
       <div class="row" style-top><button class="btn btn-primary" data-act="ld-save">${isNew ? (type.checkIn ? "Add and check in" : "Add") : "Save"}</button>
         <button class="btn" data-act="ld-cancel">Cancel</button><span class="small overdue" id="ld-msg"></span></div>
-      <details class="small" style-top><summary>Preview the sheet row</summary><div class="table-wrap"><table class="sheet-preview"><thead><tr>${D.sheet.columns.map((c) => `<th>${esc(c.label)}</th>`).join("")}</tr></thead>
+      <details class="small" style-top><summary>Preview the sheet row</summary><div class="table-wrap"><table class="sheet-preview"><thead><tr>${SHEET_COLUMNS.map((c) => `<th>${esc(c.label)}</th>`).join("")}</tr></thead>
         <tbody id="ld-preview">${previewRow(preview)}</tbody></table></div></details>
     </section>`;
   }
 
-  const previewRow = (d) => `<tr>${D.sheet.columns.map((c) => `<td>${esc(cell(d, c.field))}</td>`).join("")}</tr>`;
+  const previewRow = (d) => `<tr>${sheetCells(d).map((v) => `<td>${esc(v)}</td>`).join("")}</tr>`;
   function updateLeadPreview() { const el = document.getElementById("ld-preview"); if (el && S.ui.leadDraft) el.innerHTML = previewRow(S.ui.leadDraft); }
 
   function newLeadDraft(typeId = S.ui.fuType || "trial-booked") {
