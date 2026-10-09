@@ -48,7 +48,7 @@
       partialWeeks: "up", divisor: "30",
     },
     days: {}, leads: [], trainees: [], activeTrainee: null,
-    dues: {}, scripts: null, scriptSeed: [],
+    dues: {}, eod: {}, scripts: null, scriptSeed: [],
     calc: {}, ui: {}, handbook: "", tab: "today",
   });
   let S;
@@ -184,13 +184,14 @@
         <div class="stack">
           <section class="card"><h2>What "clean" means</h2><ul class="plain">${D.cleanStandard.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>
             <p class="small muted" style-top>A check isn't complete until the photo is in Discord. Log equipment faults in the Maintenance Log.</p></section>
-          <section class="card"><h2>Handover to next shift</h2>
+          ${shift.id === "closing" ? "" : `<section class="card"><h2>Handover to next shift</h2>
             <label class="field">Pinned emails and WhatsApps, trials and tours booked, anything unfinished. Use initials.
               <textarea data-handover placeholder="e.g. MX - cancellation, awaiting payment screenshot">${esc(d.handover)}</textarea></label>
             <div class="row" style-top><button class="btn btn-primary" data-act="copy-handover">Copy handover report</button></div>
-          </section>
+          </section>`}
         </div>
-      </div>`;
+      </div>
+      ${shift.id === "closing" ? `<div style-gap>${renderEod()}</div>` : ""}`;
   }
   const addMin = (d, m) => new Date(d.getTime() + m * 60000);
   function greeting() { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"; }
@@ -334,6 +335,7 @@
   function recordTrial(l, outcome) {
     if (inGym(l)) checkOut(l);
     l.trialOutcome = outcome; l.trialDate = l.trialDate || l.anchor; l.outcomeDate = todayStr();
+    if (outcome === "signed") l.signedDate = todayStr();
     const text = { signed: "Signed", nosign: "Didn't sign", friends: "Didn't sign", noshow: "No-show" }[outcome];
     if (outcome === "friends" && !hasTag(l.remarks, "Came with friends")) addRemark(l, "Came with friends");
     addRemark(l, text);
@@ -849,7 +851,8 @@
       </div>
       ${done.length ? `<section class="card" style-top><details><summary>Finished or closed (${done.length})</summary>
         <div class="lead-grid" style-top>${done.slice(-30).reverse().map((l) => leadCard(l)).join("")}</div>
-        <button class="btn btn-sm" data-act="lead-clear" style-top>Delete all finished</button></details></section>` : ""}`;
+        <button class="btn btn-sm" data-act="lead-clear" style-top>Delete all finished</button></details></section>` : ""}
+      <div style-gap>${renderLeadPreview()}</div>`;
   }
 
   function renderLeadEditor() {
@@ -928,6 +931,217 @@
     touch(l);
     S.leads.push(l); S.ui.fuType = type.id; S.ui.leadDraft = null; save(); render();
     toast(type.checkIn ? `${l.name} checked in` : `${l.name} added`);
+  }
+
+  // ================= EOD REPORT (Today → Peak & Closing) =================
+  // One report per day in S.eod[date].f. "auto" lines are worked out from the
+  // hub but can be overwritten (the typed value wins until it's reset).
+  // Pinned emails, pinned WhatsApp and lost and found start from the last
+  // report so open cases carry over.
+  const EOD_CARRY = ["pinnedEmails", "pinnedWA", "lostFound"];
+  function eodDay(date = todayStr()) {
+    S.eod = S.eod || {};
+    if (!S.eod[date]) {
+      const prev = Object.keys(S.eod).filter((k) => k < date).sort().pop();
+      const f = {};
+      if (prev) EOD_CARRY.forEach((k) => { if (S.eod[prev].f[k]) f[k] = S.eod[prev].f[k]; });
+      S.eod[date] = { f };
+    }
+    return S.eod[date];
+  }
+
+  const signedOn = (l) => l.signedDate || (l.trialOutcome === "signed" ? l.outcomeDate : "");
+  function eodAuto(date = todayStr()) {
+    const ymNow = date.slice(0, 7);
+    const tmr = ymd(addDays(parse(date), 1));
+    const enq = S.leads.filter((l) => l.enquiryDate === date);
+    const bucket = (src) => {
+      const c = D.eodChannels;
+      if (c.socmed.includes(src)) return "socmed";
+      if (c.walkin.includes(src)) return "walkin";
+      if (c.physical.includes(src)) return "physical";
+      return "others";
+    };
+    const by = { socmed: 0, walkin: 0, physical: 0, others: 0 };
+    enq.forEach((l) => { by[bucket(l.channel || "")]++; });
+    const trialsToday = S.leads.filter((l) => (l.checkIn && ymd(new Date(l.checkIn)) === date) || (l.trialDate === date && l.trialOutcome && l.trialOutcome !== "noshow" && l.outcomeDate === date));
+    return {
+      date: `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][parse(date).getDay()]} ${longDate(parse(date))}`,
+      tdyNjm: S.leads.filter((l) => signedOn(l) === date).length,
+      mtdNjm: S.leads.filter((l) => (signedOn(l) || "").slice(0, 7) === ymNow && signedOn(l) <= date).length,
+      socmed: by.socmed, walkin: by.walkin, physical: by.physical, others: by.others,
+      tdyEnq: enq.length,
+      trialsTdy: new Set(trialsToday.map((l) => l.id)).size,
+      trialsTmr: S.leads.filter((l) => l.stage === "trial" && !l.closed && l.trialDate === tmr).length,
+      missed: missedText(date),
+    };
+  }
+
+  // Today's enquiries and trials that didn't end in a sign-up, numbered 1/N,
+  // each with its next step.
+  function missedText(date = todayStr()) {
+    const list = S.leads.filter((l) => {
+      if (signedOn(l)) return false;
+      if (l.outcomeDate === date && ["nosign", "friends", "noshow"].includes(l.trialOutcome)) return true;
+      if (l.enquiryDate !== date) return false;
+      return !(l.stage === "trial" && l.trialDate && l.trialDate >= date); // a booked trial isn't missed yet
+    });
+    return list.map((l, i) => {
+      const what = l.trialOutcome === "noshow" && l.outcomeDate === date ? "no-show for trial"
+        : ["nosign", "friends"].includes(l.trialOutcome) && l.outcomeDate === date ? "trialled, didn't sign"
+        : "enquiry, no trial booked";
+      const n = leadNext(l);
+      const next = n ? `Next: ${n.action}, ${shortDate(n.due)}` : "Next: none";
+      return `${i + 1}/${list.length} ${l.name} - ${what}${l.reason ? ` (${l.reason})` : ""}. ${next}`;
+    }).join("\n");
+  }
+
+  // [label, key, kind]. kind: auto (worked out, can be overwritten), count
+  // (tallied with +/- during the shift), num/text (typed in), area (multi-line).
+  const EOD_LINES = [
+    ["TDY NJMS", "tdyNjm", "auto"], ["MTD NJMS", "mtdNjm", "auto"], ["RENEWALS", "renewals", "count"],
+    ["TDY ENQUIRIES", "tdyEnq", "auto"], ["PT SIGN UP TRIALS/PACKAGE", "ptSign", "count"], ["PT ENQUIRIES", "ptEnq", "count"],
+    ["SOCMED POST/ADS ENQUIRIES", "socmed", "auto"], ["WALK-IN ENQUIRIES", "walkin", "auto"], ["PHYSICAL AD ENQUIRIES", "physical", "auto"],
+    ["OTHERS (Google search, Phone  call, WhatsApp, Website)", "others", "auto"],
+  ];
+  const EOD_LINES2 = [
+    ["GYM TRIALS TDY", "trialsTdy", "auto"], ["GYM TRIALS TMR", "trialsTmr", "auto"],
+    ["GREEN MEMBERS", "green", "num"], ["YELLOW MEMBERS", "yellow", "num"], ["RED MEMBERS", "red", "num"], ["FROZEN MEMBERS", "frozen", "num"],
+  ];
+  const EOD_LINES3 = [
+    ["GOOGLE REVIEWS", "gr", "num"], ["GOOGLE REVIEWS MTD", "grMtd", "num"], ["GOOGLE REVIEWS REPLIED", "grReplied", "num"],
+    ["MEMBER TRANSFER IN", "tIn", "num"], ["MEMBER TRANSFER OUT", "tOut", "num"], ["MTD TRANSFER IN", "mtdIn", "num"], ["MTD TRANSFER OUT", "mtdOut", "num"],
+  ];
+  function eodVal(key, kind, e, auto) {
+    if (e.f[key] !== undefined && e.f[key] !== "") return e.f[key];
+    if (key === "tdyEnq") { // always the four channel lines added up, typed-over ones included
+      return String(["socmed", "walkin", "physical", "others"].reduce((t, k) => t + (Number(eodVal(k, "auto", e, auto)) || 0), 0));
+    }
+    if (kind === "auto") return String(auto[key] ?? "");
+    if (kind === "count") return "0";
+    return "";
+  }
+  function eodText(date = todayStr()) {
+    const e = eodDay(date), a = eodAuto(date);
+    const v = (k, kind) => eodVal(k, kind, e, a);
+    const line = ([label, key, kind]) => `${label}: ${v(key, kind)}`;
+    const block = (label, key, kind = "area") => `${label}: \n${v(key, kind)}`;
+    return [
+      `Closing Petty Cash: ${v("pettyCash", "text")}`,
+      "",
+      `EOD Report: ${a.date}`,
+      "",
+      ...EOD_LINES.map(line),
+      "",
+      ...EOD_LINES2.map(([l, k, kind]) => (l === "GREEN MEMBERS" ? `${l}:  ${v(k, kind)}` : line([l, k, kind]))),
+      "",
+      ...EOD_LINES3.map(line),
+      "-------------",
+      "",
+      block("HIGHLIGHTS OF THE DAY", "highlights"),
+      " ",
+      `MISSED OPPORTUNITIES: \n${v("missed", "auto")}`,
+      "",
+      block("PINNED EMAILS", "pinnedEmails"),
+      "",
+      block("PINNED WHATSAPP", "pinnedWA"),
+      "",
+      block("LOST AND FOUND", "lostFound"),
+      "",
+      `Others: ${v("others2", "text")}`,
+      "",
+      block("Handover to AM", "handoverAM"),
+    ].join("\n");
+  }
+
+  function renderEod() {
+    const e = eodDay(), a = eodAuto();
+    const numField = ([label, key, kind]) => {
+      const typed = e.f[key] !== undefined && e.f[key] !== "";
+      if (kind === "count") {
+        return `<div class="eod-f"><span class="eod-l">${esc(label)}</span><div class="row tight eod-count">
+          <button class="btn btn-sm" data-act="eod-dec" data-id="${key}" aria-label="One less">−</button>
+          <input type="number" min="0" data-eod="${key}" value="${esc(eodVal(key, kind, e, a))}" aria-label="${esc(label)}">
+          <button class="btn btn-sm" data-act="eod-inc" data-id="${key}" aria-label="One more">+</button></div></div>`;
+      }
+      if (kind === "auto") {
+        return `<div class="eod-f"><span class="eod-l">${esc(label)} <span class="eod-badge" data-badge="${key}">${eodBadge(key, typed)}</span></span>
+          <input type="number" min="0" data-eod="${key}" data-auto="1" value="${esc(eodVal(key, kind, e, a))}" aria-label="${esc(label)}"></div>`;
+      }
+      return `<div class="eod-f"><span class="eod-l">${esc(label)}</span><input type="number" min="0" data-eod="${key}" value="${esc(e.f[key] || "")}" aria-label="${esc(label)}"></div>`;
+    };
+    const area = (label, key, rows, hint = "") => `<label class="field">${esc(label)}${hint}<textarea rows="${rows}" data-eod="${key}">${esc(e.f[key] || "")}</textarea></label>`;
+    const missedTyped = e.f.missed !== undefined && e.f.missed !== "";
+    const prev = Object.keys(S.eod).filter((k) => k < todayStr()).sort().pop();
+    return `<section class="card stack" id="eod-card">
+      <div class="card-head"><h2>EOD report</h2><button class="btn btn-primary" data-act="eod-copy">Copy EOD report</button></div>
+      <p class="small muted">Lines marked <span class="badge ok">auto</span> are counted from Prospect &amp; Trial. Type over any of them if the hub missed something. Use + and − during the shift for renewals and PT.</p>
+      <label class="field">Closing Petty Cash<input type="text" data-eod="pettyCash" value="${esc(e.f.pettyCash || "")}" placeholder="e.g. $200.00 (no variance)"></label>
+      <h3>Today's numbers</h3>
+      <div class="eod-grid">${EOD_LINES.map(numField).join("")}</div>
+      <p class="small muted">TDY ENQUIRIES is the four channel lines added up. Channels come from "How did they find out about us" on each prospect.</p>
+      <h3>Trials and members</h3>
+      <div class="eod-grid">${EOD_LINES2.map(numField).join("")}</div>
+      <p class="small muted">Member numbers: My Reports › Member Reports › Member Movement in the club system.</p>
+      <h3>Reviews and transfers</h3>
+      <div class="eod-grid">${EOD_LINES3.map(numField).join("")}</div>
+      ${area("Highlights of the day", "highlights", 2)}
+      <label class="field"><span>Missed opportunities <span class="eod-badge" data-badge="missed">${eodBadge("missed", missedTyped)}</span></span>
+        <textarea rows="4" data-eod="missed" data-auto="1" placeholder="No missed opportunities today">${esc(eodVal("missed", "auto", e, a))}</textarea></label>
+      ${area("Pinned emails", "pinnedEmails", 4, prev ? ' <span class="badge">carried over</span>' : "")}
+      ${area("Pinned WhatsApp", "pinnedWA", 3, prev ? ' <span class="badge">carried over</span>' : "")}
+      ${area("Lost and found", "lostFound", 3, prev ? ' <span class="badge">carried over</span>' : "")}
+      <label class="field">Others<input type="text" data-eod="others2" value="${esc(e.f.others2 || "")}"></label>
+      ${area("Handover to AM", "handoverAM", 4)}
+      <details><summary>Preview</summary><pre class="out" id="eod-preview">${esc(eodText())}</pre></details>
+      <div class="row"><button class="btn btn-primary" data-act="eod-copy">Copy EOD report</button><button class="btn btn-ghost" data-act="handover-copy-alt">Copy short handover instead</button></div>
+    </section>`;
+  }
+  const eodBadge = (key, typed) => (typed
+    ? `<button class="badge pending badge-btn" data-act="eod-reset" data-id="${key}" title="Typed over. Tap to go back to the hub's count">edited ↺</button>`
+    : '<span class="badge ok">auto</span>');
+  function updateEodPreview() { const el = document.getElementById("eod-preview"); if (el) el.textContent = eodText(); }
+
+  // ================= SHEET PREVIEW CARDS =================
+  // A table of every row as it will be pasted, with a copy button per row.
+  // Each page remembers whether its preview is hidden.
+  const prevHidden = (page) => !!(S.ui.prevHidden || {})[page];
+  function prevShell(page, title, count, actions, table) {
+    if (prevHidden(page)) {
+      return `<section class="card prev-collapsed"><div class="row"><b>${esc(title)}</b><span class="small muted">${count} row${count === 1 ? "" : "s"} · hidden</span><span class="spacer"></span>
+        <button class="btn btn-sm" data-act="prev-toggle" data-id="${page}">Show</button></div></section>`;
+    }
+    return `<section class="card stack prev-card">
+      <div class="card-head"><div><h2>${esc(title)}</h2><p class="small muted">Click ⧉ to copy one row, then paste it into the Name cell of that row in your sheet.</p></div>
+        <div class="row">${actions}<button class="btn btn-sm btn-ghost" data-act="prev-toggle" data-id="${page}">Hide</button></div></div>
+      ${count ? `<div class="table-wrap prev-wrap">${table}</div>` : `<div class="empty">Nothing to show yet.</div>`}
+    </section>`;
+  }
+
+  function renderLeadPreview() {
+    const list = [...S.leads].sort((a, b) => (a.sheetRow || 1e9) - (b.sheetRow || 1e9) || (a.enquiryDate || "").localeCompare(b.enquiryDate || ""));
+    const stateDot = { new: ["dot-new", "Not copied yet"], changed: ["dot-changed", "Changed since last copy"], logged: ["dot-logged", "In the sheet"] };
+    const table = `<table class="sheet-preview prev-table"><thead><tr><th>Row</th>${SHEET_COLUMNS.map((c) => `<th>${esc(c.label)}</th>`).join("")}<th class="prev-copy-col"><span class="sr-only">Copy</span></th></tr></thead><tbody>
+      ${list.map((l) => {
+        const [cls, tip] = stateDot[sheetState(l)];
+        return `<tr><td class="num"><span class="dot ${cls}" title="${tip}"></span>${l.sheetRow || "–"}</td>${sheetCells(l).map((v) => `<td title="${esc(v)}">${esc(v)}</td>`).join("")}
+          <td class="prev-copy-col"><button class="copy-btn" data-act="lead-row" data-id="${l.id}" title="Copy row ${l.sheetRow || ""}" aria-label="Copy ${esc(l.name)}'s row">⧉</button></td></tr>`;
+      }).join("")}</tbody></table>`;
+    const rows = rowsInUse();
+    const actions = rows.length ? `<button class="btn btn-sm" data-act="exp-all">Copy all rows (${Math.min(...rows)}–${Math.max(...rows)})</button>` : "";
+    return prevShell("followups", "Sheet preview", list.length, actions, table);
+  }
+
+  // Payments rows: Name | Contact Number | Amount | Status | Last Contact | Note
+  const DUES_COLUMNS = ["Name", "Contact Number", "Amount", "Status", "Last Contact", "Note"];
+  const duesCells = (m) => [m.name, m.phone, m.amount ? money(parseFloat(m.amount)) : "", statusLabel(m.status), m.last || "", m.note || ""].map(sheetCell);
+  function renderDuesPreview() {
+    const list = duesList();
+    const table = `<table class="sheet-preview prev-table"><thead><tr><th>#</th>${DUES_COLUMNS.map((c) => `<th>${c}</th>`).join("")}<th class="prev-copy-col"><span class="sr-only">Copy</span></th></tr></thead><tbody>
+      ${list.map((m, i) => `<tr><td class="num">${i + 1}</td>${duesCells(m).map((v) => `<td title="${esc(v)}">${esc(v)}</td>`).join("")}
+        <td class="prev-copy-col"><button class="copy-btn" data-act="dues-row" data-id="${m.id}" aria-label="Copy ${esc(m.name)}'s row">⧉</button></td></tr>`).join("")}</tbody></table>`;
+    const actions = list.length ? `<button class="btn btn-sm" data-act="dues-rows">Copy all ${list.length} rows</button>` : "";
+    return prevShell("payments", `Sheet preview · ${monthName(duesMonth())}`, list.length, actions, table);
   }
 
   // ================= PAYMENTS (monthly dues chase) =================
@@ -1086,10 +1300,11 @@
               <li>Send the reminders in <b>one batch</b> at a quiet time (e.g. the morning of the 2nd), not spread through the shift.</li>
               <li>In WhatsApp Business, give these chats a <b>"Dues"</b> label and your prospects a <b>"Prospect"</b> label. Filter by label to see just one group.</li>
               <li>After sending, <b>archive</b> the chat. With Settings → Chats → <b>Keep chats archived</b> on, replies stay in the Archived folder instead of pushing prospects down. Check that folder twice a shift for payment screenshots.</li>
-              <li>This page is the list of who still owes. The Follow-ups tab is the list of prospects. You don't need to rely on chat order for either.</li>
+              <li>This page is the list of who still owes. The Prospect &amp; Trial tab is the list of prospects. You don't need to rely on chat order for either.</li>
             </ul>
           </section>
         </div>
+        ${renderDuesPreview()}
       </div>`;
   }
 
@@ -1655,7 +1870,18 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
         save(); render(); break;
       case "shift": d.shift = id; save(); render(); break;
       case "reset-day": if (confirm("Clear today's ticks and notes?")) { S.days[todayStr()] = null; delete S.days[todayStr()]; day(); save(); render(); } break;
-      case "copy-handover": copy(handoverText(), "Handover copied"); break;
+      case "copy-handover": case "handover-copy-alt": copy(handoverText(), "Handover copied"); break;
+      case "eod-copy": copy(eodText(), "EOD report copied. Paste it into Discord"); break;
+      case "eod-inc": case "eod-dec": {
+        const e = eodDay(); const n = Math.max(0, (Number(e.f[id]) || 0) + (act === "eod-inc" ? 1 : -1));
+        e.f[id] = String(n); save();
+        const el = document.querySelector(`[data-eod="${id}"]`); if (el) el.value = n;
+        updateEodPreview(); break;
+      }
+      case "eod-reset": { delete eodDay().f[id]; save(); render(); break; }
+      case "prev-toggle": S.ui.prevHidden = Object.assign({}, S.ui.prevHidden, { [id]: !prevHidden(id) }); save(); render(); break;
+      case "dues-row": { const m = duesList().find((x) => x.id === id); copy(duesCells(m).join("\t"), `${m.name}'s row copied`); break; }
+      case "dues-rows": copy(duesList().map((m) => duesCells(m).join("\t")).join("\n"), "All rows copied"); break;
 
       case "fu-filter": S.ui.fuFilter = id; save(); render(); break;
       case "fq-clear": S.ui.fq = { sort: (S.ui.fq || {}).sort }; save(); render(); break;
@@ -1696,7 +1922,7 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
         l.trialDate = d2; if (t2) l.trialTime = t2; l.checkIn = null; l.checkOut = null; l.scheduleAppt = "Yes";
         startJourney(l, "trial", d2, "Booked a trial"); touch(l); save(); render(); break;
       }
-      case "lead-signed": { const l = S.leads.find((x) => x.id === id); if (l.stage === "nosign" || l.stage === "friends") { l.trialOutcome = "signed"; l.outcomeDate = todayStr(); } addRemark(l, "Signed"); startJourney(l, "member", todayStr(), "Signed up"); save(); render(); toast(`${l.name} moved to new members`); break; }
+      case "lead-signed": { const l = S.leads.find((x) => x.id === id); l.signedDate = todayStr(); if (l.stage === "nosign" || l.stage === "friends") { l.trialOutcome = "signed"; l.outcomeDate = todayStr(); } addRemark(l, "Signed"); startJourney(l, "member", todayStr(), "Signed up"); save(); render(); toast(`${l.name} moved to new members`); break; }
       case "lead-close": { const l = S.leads.find((x) => x.id === id); l.closed = true; l.outcome = journey(l.stage).kind === "member" ? "Done" : "Closed, not signing"; save(); render(); break; }
       case "lead-del": if (confirm("Delete this person from the hub? If they have a row number, that row will be copied back blank.")) { S.leads = S.leads.filter((x) => x.id !== id); save(); render(); } break;
       case "lead-clear": if (confirm("Delete everyone in the finished list?")) { S.leads = S.leads.filter((l) => leadNext(l)); save(); render(); } break;
@@ -1822,6 +2048,8 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
         Object.keys(S.days).forEach((k) => { if (k < cutoff) delete S.days[k]; });
         const mCut = ym(new Date(new Date().getFullYear(), new Date().getMonth() - 2, 1));
         Object.keys(S.dues).forEach((k) => { if (k < mCut) delete S.dues[k]; });
+        const eCut = ymd(addDays(new Date(), -60));
+        Object.keys(S.eod || {}).forEach((k) => { if (k < eCut) delete S.eod[k]; });
         save(); toast("Old checklists and payment lists deleted"); break;
       }
       case "wipe": if (confirm("Erase all data in the Shift Hub on this computer? Export a backup first if you need it.")) { localStorage.removeItem(KEY); S = defaults(); init(); save(); go("today"); } break;
@@ -1856,6 +2084,14 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
     const t = e.target;
     if (t.dataset.note !== undefined) { day().notes[t.dataset.note] = t.value; save(); return; }
     if (t.dataset.handover !== undefined) { day().handover = t.value; save(); return; }
+    if (t.dataset.eod) {
+      const e = eodDay(); e.f[t.dataset.eod] = t.value; save();
+      if (t.dataset.auto) { const bd = document.querySelector(`[data-badge="${t.dataset.eod}"]`); if (bd) bd.innerHTML = eodBadge(t.dataset.eod, t.value !== ""); }
+      if (["socmed", "walkin", "physical", "others"].includes(t.dataset.eod) && !e.f.tdyEnq) {
+        const tot = document.querySelector('[data-eod="tdyEnq"]'); if (tot) tot.value = eodVal("tdyEnq", "auto", e, eodAuto());
+      }
+      updateEodPreview(); return;
+    }
     if (t.dataset.k) { S.calc[t.dataset.k] = t.value; save(); updateCalc(); return; }
     if (t.dataset.s && t.tagName !== "SELECT") { S.settings[t.dataset.s] = t.value; save(); return; }
     if (t.dataset.sd && t.tagName !== "SELECT") { S.ui.scDraft[t.dataset.sd] = t.value; save(); return; }
