@@ -161,26 +161,13 @@ window.AFO = {
     { group: "About them", tags: ["Came with friends", "Comparing other gyms", "Student / senior", "Beginner", "Interested in PT", "Trains evenings", "Trains weekends"] },
   ],
 
-  // The online Prospect & Trial sheet. "Copy row" puts these columns in this
-  // order, separated by tabs, so one paste into the Name cell fills the row.
-  // `field` is what goes in the column; "" leaves the cell blank. Available
-  // fields: name, phone, waLink, enquiryDate, channel, scheduler, trialDate,
-  // trialTime, followedUp, remarks.
+  // The online Prospect & Trial sheet. The column order is fixed in app.js
+  // (SHEET_COLUMNS) so every copied row matches the sheet exactly:
+  // Name | Contact Number | Whatsapp Link | Date of Enquiry |
+  // How did the prospect find out about us | Schedule for Appt | Scheduler |
+  // Trial Date | Trial Time | Followed Up | Remarks
   sheet: {
     dateFormat: "DD/MM/YYYY", // or "D MMM YYYY"
-    columns: [
-      { label: "Name", field: "name" },
-      { label: "Contact Number", field: "phone" },
-      { label: "Whatsapp Link", field: "" },
-      { label: "Date of Enquiry", field: "enquiryDate" },
-      { label: "How did the prospect find out about us", field: "" },
-      { label: "Schedule for Appt", field: "" },
-      { label: "Scheduler", field: "scheduler" },
-      { label: "Trial Date", field: "trialDate" },
-      { label: "Trial Time", field: "trialTime" },
-      { label: "Followed Up", field: "followedUp" },
-      { label: "Remarks", field: "remarks" },
-    ],
   },
 
   // Talking points while a trial is in the gym (handbook 5.2).
