@@ -1,4 +1,4 @@
-// AFO Shift Hub — runs entirely in the browser. No build step, no server.
+// Shift Hub — runs entirely in the browser. No build step, no server.
 // All data is kept in this browser's localStorage on this computer.
 (function () {
   "use strict";
@@ -62,9 +62,29 @@
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { toast("Could not save: browser storage is blocked or full"); } };
 
   const me = () => S.settings.name.trim() || "[Your Name]";
+  // This outlet's details: Settings → Outlet, falling back to data.js.
+  const OUTLET_FIELDS = [
+    ["name", "Outlet name", "Anytime Fitness Orchard"], ["short", "Short name", "AF Orchard"], ["code", "Outlet code", "AFO"],
+    ["area", "Area (shown in the sidebar)", "Orchard"], ["phone", "Phone", ""], ["email", "Email", ""], ["address", "Address", ""],
+    ["vpaFreezeCancel", "VPA for freezes and cancellations", ""], ["vpaLatePayment", "VPA for late payments", ""],
+  ];
+  function club() {
+    const o = S.settings.outlet || {}, c = Object.assign({}, D.club);
+    OUTLET_FIELDS.forEach(([k]) => { if (o[k] !== undefined && (o[k].trim() || !["name", "short", "code"].includes(k))) c[k] = o[k].trim(); });
+    return c;
+  }
+  function applyOutlet() {
+    const c = club();
+    document.title = `${c.code} Shift Hub`;
+    const small = document.querySelector(".brand-text small");
+    if (small) small.textContent = `${c.area || c.code} · offline`;
+  }
   // Fill a script's placeholders. [Month]/[Amount] are only replaced when given.
   function fill(text, v = {}) {
-    let t = text.replaceAll("[Your Name]", me()).replaceAll("[NAME]", (v.name || "").trim() || "[NAME]");
+    const c = club();
+    let t = text.replaceAll("[Your Name]", me()).replaceAll("[NAME]", (v.name || "").trim() || "[NAME]")
+      .replaceAll("[Outlet Short]", c.short).replaceAll("[Outlet Code]", c.code).replaceAll("[Outlet Phone]", c.phone)
+      .replaceAll("[Outlet]", c.name).replaceAll("[Freeze VPA]", c.vpaFreezeCancel).replaceAll("[Late VPA]", c.vpaLatePayment);
     if (v.month) t = t.replaceAll("[Month]", v.month);
     if ("amount" in v) {
       const a = parseFloat(v.amount);
@@ -199,7 +219,7 @@
   function handoverText() {
     const d = day();
     const shift = D.shifts.find((s) => s.id === d.shift);
-    const lines = [`${D.club.code} handover · ${longDate(new Date())} · ${shift.label} · ${me()}`, ""];
+    const lines = [`${club().code} handover · ${longDate(new Date())} · ${shift.label} · ${me()}`, ""];
     const notDone = shift.items.filter((i) => !d.done[i.id]);
     lines.push(`Checklist: ${shift.items.length - notDone.length}/${shift.items.length} done`);
     if (notDone.length) lines.push("Not done:", ...notDone.map((i) => `- ${i.text}${d.notes[i.id] ? " (" + d.notes[i.id] + ")" : ""}`));
@@ -1312,7 +1332,7 @@
     const m = duesMonth();
     const st = duesStats();
     const promised = duesList().filter((x) => x.status === "promised");
-    return [`${D.club.code} dues chase · ${monthName(m)} · ${longDate(new Date())}`,
+    return [`${club().code} dues chase · ${monthName(m)} · ${longDate(new Date())}`,
       `Paid: ${st.paid}/${st.total} · Outstanding: ${st.out} (${money(st.outSum)}) · Not contacted yet: ${st.todo}`,
       ...(promised.length ? ["Promised to pay:", ...promised.map((x) => `- ${initials(x.name)}${x.note ? ": " + x.note : ""}`)] : [])].join("\n");
   }
@@ -1373,7 +1393,7 @@
 
   function updateCalc() {
     const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
-    const sig = () => `\n\n(Your mail client adds the AFO signature. Check it's there before sending.)`;
+    const sig = () => `\n\n(Your mail client adds the ${club().code} signature. Check it's there before sending.)`;
 
     // Freeze
     {
@@ -1404,9 +1424,9 @@ Freeze period: ${longDate(st)} to ${longDate(en)} (${days} days)
 Fee breakdown: ($${D.fees.freezePerWeek}/week × ${weeks} weeks) = ${money(fee)}
 
 Kindly arrange payment of ${money(fee)} to the VPA below by the end of the month to proceed with your freeze request:
-VPA: ${D.club.vpaFreezeCancel}
+VPA: ${club().vpaFreezeCancel}
 
-When making the payment, please indicate "AFO Freezing" in the payment remarks.
+When making the payment, please indicate "${club().code} Freezing" in the payment remarks.
 
 Once payment has been made, kindly send us a screenshot of the payment confirmation for our records.
 
@@ -1465,13 +1485,13 @@ Prorated Charges:
 
 Payment of ${money(amt)} will be deducted automatically from your account, and your last day of club access will be ${longDate(last)}.
 
-We thank you for being a loyal member of Anytime Fitness Orchard. Should you require any further assistance, please do not hesitate to contact us.` + sig()
+We thank you for being a loyal member of ${club().name}. Should you require any further assistance, please do not hesitate to contact us.` + sig()
           : head + `${month} prorata: (${money(fee)} ÷ ${div} days) × ${active} = ${money(amt)}
 
 Kindly make payment of ${money(amt)} to our VPA below by the end of the month to process your cancellation:
-VPA: ${D.club.vpaFreezeCancel}
+VPA: ${club().vpaFreezeCancel}
 
-Please include "AFO Cancellation" in the payment remarks and send us a screenshot as verification of your payment. Should you require any further assistance, please do not hesitate to contact us.` + sig();
+Please include "${club().code} Cancellation" in the payment remarks and send us a screenshot as verification of your payment. Should you require any further assistance, please do not hesitate to contact us.` + sig();
         const confirm = `Subject: Membership Cancellation Confirmed
 
 Dear ${name},
@@ -1480,7 +1500,7 @@ Thank you for your prompt payment. We have received and verified your payment su
 
 Your cancellation has been processed, and your final day of club access will be ${longDate(last)} at 11:59PM (2359 hrs).
 
-We would like to thank you for choosing Anytime Fitness Orchard as your fitness provider. It has been our pleasure to be part of your fitness journey, and we wish you all the best in your future endeavours.
+We would like to thank you for choosing ${club().name} as your fitness provider. It has been our pleasure to be part of your fitness journey, and we wish you all the best in your future endeavours.
 
 Should your circumstances change, we would be delighted to welcome you back in the future.` + sig();
         calcEmails.cn = email; calcEmails.cnc = confirm;
@@ -1518,6 +1538,11 @@ Should your circumstances change, we would be delighted to welcome you back in t
   const SCRIPT_CATS = ["Enquiries", "Trials", "Members", "Payments", "Promotions", "Other"];
   function seedScripts() {
     if (!Array.isArray(S.scripts)) S.scripts = [];
+    if (!S.outletTokens) {
+      const swap = [["Anytime Fitness Orchard", "[Outlet]"], ["AF Orchard", "[Outlet Short]"], ["UEN202106218Z (Watchtower Gyms)", "[Late VPA]"], ["UEN202142897EA00#XNAP", "[Freeze VPA]"]];
+      S.scripts.forEach((s) => { swap.forEach(([from, to]) => { s.text = s.text.split(from).join(to); }); });
+      S.outletTokens = 1;
+    }
     S.scriptSeed = S.scriptSeed || [];
     D.scripts.forEach((b) => {
       if (S.scriptSeed.includes(b.key)) return;
@@ -1624,7 +1649,7 @@ Should your circumstances change, we would be delighted to welcome you back in t
       </div>
       <label class="field">When to use it<input type="text" data-sd="when" value="${esc(d.when)}" placeholder="e.g. Anyone asking about October's promotion"></label>
       <label class="field">Message<textarea data-sd="text" rows="9">${esc(d.text)}</textarea></label>
-      <p class="small muted">Placeholders: <code>[Your Name]</code> <code>[NAME]</code> (their first name) <code>[Month]</code> <code>[Amount]</code> (Payments tab only).</p>
+      <p class="small muted">Placeholders: <code>[Your Name]</code> <code>[NAME]</code> (their first name) <code>[Outlet]</code> <code>[Outlet Short]</code> <code>[Outlet Code]</code> <code>[Outlet Phone]</code> <code>[Freeze VPA]</code> <code>[Late VPA]</code> (from Settings → Outlet) <code>[Month]</code> <code>[Amount]</code> (Payments tab only).</p>
       <div class="row"><button class="btn btn-primary" data-act="sd-save">Save</button><button class="btn" data-act="sd-cancel">Cancel</button>
         <span class="small overdue" id="sd-msg"></span><span class="spacer"></span>
         ${orig?.builtin ? `<button class="btn btn-ghost" data-act="sd-restore">Restore handbook wording</button>` : ""}
@@ -1785,7 +1810,8 @@ Should your circumstances change, we would be delighted to welcome you back in t
 
   function knowledge() {
     const k = [];
-    k.push(`Club: ${D.club.name} (${D.club.code}), ${D.club.address}. Phone ${D.club.phone}. Email ${D.club.email}.`);
+    const c = club();
+    k.push(`Club: ${c.name} (${c.code}), ${c.address}. Phone ${c.phone}. Email ${c.email}. VPA for freezes and cancellations: ${c.vpaFreezeCancel}. VPA for late payments: ${c.vpaLatePayment}.`);
     k.push("Membership rates: " + D.rates.map((r) => `${r.label} $${r.monthly}/month${r.enrolmentWaived ? " (enrolment fee waived)" : ""}`).join("; ") + ".");
     k.push(`Fees: enrolment $${D.fees.enrolment}, access pass $${D.fees.accessPass}, freeze $${D.fees.freezePerWeek}/week, late payment $${D.fees.latePayment}. 30 days notice for freezes and cancellations.`);
     k.push("Bundles: " + D.bundles.map((b) => `${b.label} ${b.discount * 100}% off 12 or 18 month rate, enrolment waived, access pass still applies`).join("; ") + ".");
@@ -1793,7 +1819,7 @@ Should your circumstances change, we would be delighted to welcome you back in t
     k.push("Cleanliness standard: " + D.cleanStandard.join("; ") + ".");
     k.push("Follow-up journeys (day counted from the anchor date):\n" + journeys().map((j) => `${j.label} (from ${j.anchor}): ` + j.steps.map((s) => `day ${s.d}: ${s.action}${s.script ? " (" + s.script + ")" : ""}`).join("; ")).join("\n"));
     k.push(`Monthly dues: payments are collected on the ${D.dues.collectDay}st at 00:00. Unpaid (yellow) members are chased until the ${D.dues.deadlineDay}th at 00:00. EZpay makes a second deduction at 00:00 on the ${D.dues.deadlineDay}th; if that fails a $${D.fees.latePayment} late fee is added.`);
-    k.push("WhatsApp scripts in use today:\n" + S.scripts.filter((s) => scriptStatus(s).id === "active").map((s) => `${s.key} (${s.cat}${s.type === "promo" && s.end ? ", promotion until " + s.end : ""}) — ${s.when}\n${s.text}`).join("\n\n"));
+    k.push("WhatsApp scripts in use today:\n" + S.scripts.filter((s) => scriptStatus(s).id === "active").map((s) => `${s.key} (${s.cat}${s.type === "promo" && s.end ? ", promotion until " + s.end : ""}) — ${s.when}\n${fill(s.text)}`).join("\n\n"));
     return k.join("\n\n");
   }
 
@@ -1807,7 +1833,7 @@ Should your circumstances change, we would be delighted to welcome you back in t
       return;
     }
     out.innerHTML = `<p class="muted">Thinking… (the first answer can take a minute while the model loads)</p>`;
-    const system = `You are the AFO Shift Hub assistant for front desk staff at Anytime Fitness Orchard in Singapore.
+    const system = `You are the ${club().code} Shift Hub assistant for front desk staff at ${club().name} in Singapore.
 Answer ONLY from the reference material below. If the answer is not in it, say "The handbook doesn't cover this. Ask the escalation contact." Never invent prices, fees, dates, promotions or policies.
 Where the material says [CONFIRM #n], tell the staff member that the rule is still being confirmed by the manager.
 Be brief and practical. Use numbered steps for procedures. Refer to members as "the member", never ask for personal details.
@@ -1839,6 +1865,11 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
         <section class="card stack"><h2>You</h2>
           <label class="field">Your name (used in scripts)<input type="text" data-s="name" value="${esc(s.name)}"></label>
           <label class="field">Job title<input type="text" data-s="title" value="${esc(s.title)}"></label>
+        </section>
+        <section class="card stack"><h2>Outlet</h2>
+          <p class="small muted">Scripts, emails, the EOD report and the app's title use these, so each outlet sets its own.</p>
+          ${OUTLET_FIELDS.map(([k, label]) => `<label class="field">${label}<input type="text" data-outlet="${k}" value="${esc(club()[k] || "")}"></label>`).join("")}
+          <p class="small muted">Already-edited scripts that name another outlet need editing by hand.</p>
         </section>
         <section class="card stack"><h2>Rules still being confirmed</h2>
           <label class="field">Freeze: partial weeks ${pendingBadge("CONFIRM #4")}${sel("partialWeeks", [["up", "Round up (10 days = 2 weeks)"], ["down", "Round down (10 days = 1 week)"]])}</label>
@@ -2004,7 +2035,7 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
         save(); render(); document.getElementById("seq-card")?.scrollIntoView({ block: "nearest" }); break;
       }
       case "seq-reset": if (confirm("Put every follow-up sequence back to the default steps?")) { S.journeys = null; save(); render(); } break;
-      case "sc-new": S.ui.scDraft = { id: null, key: "/", cat: "Promotions", type: "promo", start: todayStr(), end: "", when: "", text: "Hi [NAME]! [Your Name] from Anytime Fitness Orchard here 💜\n" }; save(); render(); break;
+      case "sc-new": S.ui.scDraft = { id: null, key: "/", cat: "Promotions", type: "promo", start: todayStr(), end: "", when: "", text: "Hi [NAME]! [Your Name] from [Outlet] here 💜\n" }; save(); render(); break;
       case "sc-edit": { const sc = S.scripts.find((x) => x.id === id); S.ui.scDraft = { id: sc.id, key: sc.key, cat: sc.cat, type: sc.type, start: sc.start || "", end: sc.end || "", when: sc.when, text: sc.text }; save(); render(); break; }
       case "sd-save": saveScriptDraft(); break;
       case "sd-cancel": S.ui.scDraft = null; save(); render(); break;
@@ -2094,6 +2125,7 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
     }
     if (t.dataset.k) { S.calc[t.dataset.k] = t.value; save(); updateCalc(); return; }
     if (t.dataset.s && t.tagName !== "SELECT") { S.settings[t.dataset.s] = t.value; save(); return; }
+    if (t.dataset.outlet) { S.settings.outlet = Object.assign({}, S.settings.outlet, { [t.dataset.outlet]: t.value }); save(); applyOutlet(); return; }
     if (t.dataset.sd && t.tagName !== "SELECT") { S.ui.scDraft[t.dataset.sd] = t.value; save(); return; }
     if (t.dataset.seq && t.tagName !== "SELECT") {
       const j = editableJourneys().find((x) => x.id === (S.ui.seqId || "nosign")) || editableJourneys()[0];
@@ -2209,6 +2241,7 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
   }, 30000);
 
   init();
+  applyOutlet();
   go(S.tab);
 
   // When hosted (e.g. GitHub Pages), cache the hub's files so it keeps working

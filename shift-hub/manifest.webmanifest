@@ -1,7 +1,7 @@
 {
-  "name": "AFO Shift Hub",
+  "name": "AF Shift Hub",
   "short_name": "Shift Hub",
-  "description": "Front-desk dashboard for Anytime Fitness Orchard. Data stays on this computer.",
+  "description": "Front-desk dashboard for Anytime Fitness outlets. Data stays on this computer.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

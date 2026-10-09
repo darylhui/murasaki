@@ -24,6 +24,12 @@ Bookmark the page so the next shift can find it.
 
 Anything still open in the handbook's manager checklist shows a yellow **pending CONFIRM #n** badge. The two calculation rules that are still open (partial freeze weeks, prorata divisor) can be switched in Settings once the manager decides.
 
+## Setting up another outlet
+
+The hub works for any Anytime Fitness outlet. On a new outlet's computer, open **Settings → Outlet** and fill in the outlet name (e.g. Anytime Fitness Bugis), short name (AF Bugis), code (AFB), area, phone, email, address and the two VPA numbers. Everything follows straight away: every WhatsApp script, the freeze and cancellation emails (including the "AFB Freezing" payment remark), the handover, EOD and dues summaries, the sidebar and the window title.
+
+Scripts use placeholders instead of a fixed outlet: `[Outlet]`, `[Outlet Short]`, `[Outlet Code]`, `[Outlet Phone]`, `[Freeze VPA]` and `[Late VPA]`. Use them in any script you write, and exported scripts work at any outlet. Scripts saved before this change are converted automatically.
+
 ## Syncing with your Excel sheet
 
 On **Prospect & Trial**, open **Sync with your Excel sheet**. Every entry has a **row number** that matches its row in your Excel sheet. It shows on each card, and you can change it under **Edit**.
