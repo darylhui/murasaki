@@ -345,3 +345,14 @@ details > summary { padding: 2px 0; }
 .tag:hover { border-color: var(--accent); }
 .tag[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .tag[aria-pressed="true"]::before { content: "✓ "; }
+
+/* Windows High Contrast (forced colors): keep selected and status states visible */
+@media (forced-colors: active) {
+  .btn, .seg button, .tag, .type-pick button, .sheet-btn, .nav-btn, .badge, .chip, .tile, .lead, .card { border: 1px solid ButtonText; }
+  .nav-btn[aria-current="page"], .seg button[aria-pressed="true"], .tag[aria-pressed="true"], .type-pick button[aria-checked="true"] {
+    forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight;
+  }
+  .lead.is-due, .lead.gym, .lead.outcome { border-width: 3px; }
+  .live-dot { forced-color-adjust: none; background: Highlight; }
+  progress { border: 1px solid CanvasText; }
+}
