@@ -73,7 +73,7 @@ window.AFO = {
         { id: "peak-2030", text: "Peak cleanliness check", due: "20:30", photo: true },
         { id: "peak-2100", text: "Peak cleanliness check", due: "21:00", photo: true },
         { id: "clean-close", text: "End of day cleanliness check, including lockers", due: "22:00", photo: true },
-        { id: "eod", text: "Post the EOD report in Discord (copy from the EOD Log tab)" },
+        { id: "eod", text: "Post the EOD report in Discord (fill in and copy it below)" },
         { id: "pos-close", text: "Close the POS in Membr; closing petty cash goes in the EOD report" },
         { id: "kpi", text: "Update KPI movement in the DSR form" },
         { id: "logsheet", text: "Update the logsheet (outlet in Remarks, commissions noted)" },
@@ -151,8 +151,7 @@ window.AFO = {
   // Everything else about them goes in Remarks (see remarkTags).
   customerTypes: [
     { id: "enquiry", label: "Enquiry", journey: "enquiry", source: "", appt: "TBC" },
-    { id: "trial-booked", label: "Trial booked", journey: "trial", source: "", appt: "Yes", trial: true },
-    { id: "walkin-trial", label: "Walk-in, trying the gym now", journey: "trial", source: "On-Site (Posters/Walk-in/Gym-floor duty)", appt: "No", checkIn: true },
+    { id: "trial-booked", label: "Trial", journey: "trial", source: "", appt: "Yes", trial: true },
   ],
 
   // "How did the prospect find out about us": the options in the sheet's dropdown.
@@ -166,6 +165,15 @@ window.AFO = {
     "Word-of-mouth (Referral)",
     "Corporate",
   ],
+
+  // Which "How did they find out about us" options count towards each
+  // enquiry line of the EOD report. Anything not listed (or not set) counts
+  // as OTHERS (Google search, Phone call, WhatsApp, Website).
+  eodChannels: {
+    socmed: ["Social Content (IG/FB Organic)", "Paid Media (IG/FB Ads)"],
+    walkin: ["On-Site (Posters/Walk-in/Gym-floor duty)"],
+    physical: [],
+  },
 
   // "Schedule for Appt" options in the sheet.
   apptOptions: ["Yes", "No", "TBC"],
