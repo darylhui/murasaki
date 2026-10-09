@@ -98,7 +98,8 @@ window.AFO = {
   // the late payment fee is added.
   dues: { collectDay: 1, secondDeductionDay: 7, deadlineDay: 8 },
 
-  // Customer journeys for the Prospect & Trial tab. Each step is due `d` days after
+  // Follow-up sequences for the Prospect & Trial tab (the defaults: staff can
+  // edit the steps under Scripts → Follow-up steps). Each step is due `d` days after
   // the journey's anchor date (enquiry date, trial date or sign-up date) and
   // suggests a script from the Scripts tab. Timings follow handbook 4.6 where it
   // has one [CONFIRM #6]; the rest are suggestions for the manager to adjust.
@@ -149,10 +150,25 @@ window.AFO = {
   // trial date and time fields; `checkIn: true` checks them in straight away.
   // Everything else about them goes in Remarks (see remarkTags).
   customerTypes: [
-    { id: "enquiry", label: "Enquiry", journey: "enquiry", source: "WhatsApp" },
-    { id: "trial-booked", label: "Trial booked", journey: "trial", source: "WhatsApp", trial: true },
-    { id: "walkin-trial", label: "Walk-in, trying the gym now", journey: "trial", source: "Walk-in", checkIn: true },
+    { id: "enquiry", label: "Enquiry", journey: "enquiry", source: "", appt: "TBC" },
+    { id: "trial-booked", label: "Trial booked", journey: "trial", source: "", appt: "Yes", trial: true },
+    { id: "walkin-trial", label: "Walk-in, trying the gym now", journey: "trial", source: "On-Site (Posters/Walk-in/Gym-floor duty)", appt: "No", checkIn: true },
   ],
+
+  // "How did the prospect find out about us": the options in the sheet's dropdown.
+  // Copied rows use this exact text so the dropdown accepts it.
+  sources: [
+    "AF Website",
+    "Social Content (IG/FB Organic)",
+    "Paid Media (IG/FB Ads)",
+    "EDMs",
+    "On-Site (Posters/Walk-in/Gym-floor duty)",
+    "Word-of-mouth (Referral)",
+    "Corporate",
+  ],
+
+  // "Schedule for Appt" options in the sheet.
+  apptOptions: ["Yes", "No", "TBC"],
 
   // One-tap tags on the prospect form and the in-gym card. Tapping one adds
   // the text to Remarks (tap again to remove it).
