@@ -637,7 +637,7 @@
       if (pm) { phone = pm[1] + pm[2]; raw = raw.replace(pm[0], " "); }
       const am = raw.match(/\$\s?(\d+(?:\.\d{1,2})?)/) || raw.match(/\b(\d+\.\d{2})\b/) || raw.match(/\b(\d{2,4})\b/);
       if (am) { amount = am[1]; raw = raw.replace(am[0], " "); }
-      const name = raw.replace(/[,\t;|]+/g, " ").replace(/\s+/g, " ").trim();
+      const name = raw.replace(/"/g, "").replace(/[,\t;|]+/g, " ").replace(/\s+/g, " ").trim();
       if (!name || (/^(name|member)/i.test(name) && !phone && !amount)) return;
       out.push({ name, phone, amount });
     });
@@ -1393,12 +1393,22 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
     a.href = URL.createObjectURL(blob); a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
+  // Reads a text file chosen by the user. Word and Excel on Windows often save
+  // .txt and .csv files as Windows-1252 rather than UTF-8, which garbles names
+  // and symbols, so fall back to that when the file isn't valid UTF-8.
+  function decodeText(buf) {
+    const bytes = new Uint8Array(buf);
+    if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder("utf-16le").decode(bytes);
+    if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder("utf-16be").decode(bytes);
+    try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^\uFEFF/, ""); }
+    catch { return new TextDecoder("windows-1252").decode(bytes); }
+  }
   function readFile(input, cb) {
     const f = input.files[0];
     if (!f) return;
     const r = new FileReader();
-    r.onload = () => { cb(String(r.result)); input.value = ""; };
-    r.readAsText(f);
+    r.onload = () => { cb(decodeText(r.result)); input.value = ""; };
+    r.readAsArrayBuffer(f);
   }
 
   main.addEventListener("input", (e) => {
@@ -1456,22 +1466,16 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
       if (t.value) tr.items[t.dataset.ob] = { status: t.value, date: todayStr() }; else delete tr.items[t.dataset.ob];
       save(); render(); return;
     }
-    if (t.id === "hb-file" && t.files[0]) {
-      const r = new FileReader();
-      r.onload = () => { S.handbook = String(r.result); save(); render(); checkAI(); toast("Handbook loaded"); };
-      r.readAsText(t.files[0]);
-    }
-    if (t.id === "imp-file" && t.files[0]) {
-      const r = new FileReader();
-      r.onload = () => {
+    if (t.id === "hb-file") { readFile(t, (txt) => { S.handbook = txt; save(); render(); checkAI(); toast("Handbook loaded"); }); return; }
+    if (t.id === "imp-file") {
+      readFile(t, (txt) => {
         try {
-          const data = JSON.parse(String(r.result));
+          const data = JSON.parse(txt);
           if (!data || typeof data !== "object" || !data.settings) throw new Error();
           if (!confirm("Replace everything in the Shift Hub with this backup?")) return;
           S = Object.assign(defaults(), data); init(); save(); go(S.tab); toast("Backup restored");
         } catch { toast("That file isn't a Shift Hub backup"); }
-      };
-      r.readAsText(t.files[0]);
+      });
     }
   });
 
@@ -1484,4 +1488,10 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
 
   init();
   go(S.tab);
+
+  // When hosted (e.g. GitHub Pages), cache the hub's files so it keeps working
+  // offline and can be installed as an app. Not available when opened as a file.
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
 })();

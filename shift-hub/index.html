@@ -8,11 +8,15 @@
     a local AI server on this computer (Ollama). The browser blocks every other
     network request, so nothing typed here can be sent to the internet.
   -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src http://localhost:11434 http://127.0.0.1:11434; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; connect-src http://localhost:11434 http://127.0.0.1:11434; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <!-- Keep the page out of search engines if it is hosted online. -->
   <meta name="robots" content="noindex, nofollow">
   <title>AFO Shift Hub</title>
+  <meta name="theme-color" content="#6b2fa6">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>

@@ -26,22 +26,36 @@ Anything still open in the handbook's manager checklist shows a yellow **pending
 
 ## Or open it online (GitHub Pages)
 
-The repo can publish this folder to `https://darylhui.github.io/murasaki/` so staff just open a link and always get the latest version.
+The hub is published at **https://darylhui.github.io/murasaki/** so staff can just open a link and always get the latest version. Every change merged into `main` under `shift-hub/` goes live within a couple of minutes (`.github/workflows/pages.yml`).
 
-* **One-time setup:** a private repo needs GitHub Pro for Pages. In the repo, go to **Settings → Pages → Build and deployment → Source** and pick **GitHub Actions**. The workflow in `.github/workflows/pages.yml` then publishes the `shift-hub` folder every time `main` changes. To publish right away, go to **Actions → Deploy Shift Hub to GitHub Pages → Run workflow**.
-* **The page is public.** Anyone with the link can open it, so everything in `data.js` (rates, scripts, checklists, VPA numbers) is readable. The repo itself (source, history, `PITCH.md`) stays private. The page asks search engines not to list it.
-* **Member data still stays on each computer.** The hosted page saves to the browser exactly like the file version. It starts empty: use **Settings → Export backup** on the old copy and **Import backup** on the hosted one.
+* **One-time setup:** in the repo, go to **Settings → Pages → Build and deployment → Source** and choose **GitHub Actions**. Then go to **Actions → Deploy Shift Hub to GitHub Pages → Run workflow**.
+* **The page is public.** Anyone with the link can open it and read what's in `data.js` (rates, scripts, checklists, VPA numbers). The page asks search engines not to list it.
+* **Member data still stays on each computer.** The hosted page saves to that browser only, exactly like the file version. Nothing typed in it is uploaded. It starts empty: use **Settings → Export backup** on the old copy and **Import backup** on the hosted one.
 * Don't publish any other GitHub Pages site on this account. Sites on `darylhui.github.io` share browser storage, so another site could read the hub's saved data.
-* For the private AI, add `https://darylhui.github.io` to Ollama's `OLLAMA_ORIGINS`.
 
+## On Windows
 
+The hub works in **Microsoft Edge** or **Google Chrome** on Windows 10 and 11.
+
+**Install it as an app (recommended).** Open https://darylhui.github.io/murasaki/ in Edge or Chrome:
+
+* **Edge:** **⋯ menu → Apps → Install this site as an app**.
+* **Chrome:** click the install icon at the right of the address bar, or **⋮ menu → Cast, save and share → Install page as app**.
+
+It then opens in its own window, gets a Start menu entry, and can be pinned to the taskbar (right-click its taskbar icon → **Pin to taskbar**). Once it has been opened online, it **keeps working if the internet drops**.
+
+**Saved data belongs to the browser.** Edge and Chrome keep separate data, so pick one browser on the front-desk computer and stick to it. Clearing browsing data ("cookies and site data") erases the hub, so export a backup first.
+
+**Files from Word and Excel.** Windows Word and Excel often save `.txt` and `.csv` files in an older format (Windows-1252). The hub detects this and reads names like "José Peña" correctly. In Excel, **File → Save As → CSV UTF-8** is the safest choice, or just copy the cells in Excel and paste them into the Payments box.
+
+## Where the data goes
 
 Nowhere. Everything you type is saved in this browser on this computer (localStorage).
 
 * The page has a security policy that stops the browser from sending anything to the internet. The only address it's allowed to contact is a local AI server on the same computer (`localhost:11434`).
 * No fonts, scripts or images are loaded from the web.
 * Prospect & Trial keeps full names and contact numbers because they go into the online sheet. Remarks are blocked if they contain an NRIC or card number.
-* The Payments tab keeps member names, phone numbers and amounts, which is why it lives here and not online. **Open in WhatsApp** hands the message to WhatsApp, the same as typing it yourself. Use **Settings → Delete old data** to clear payment lists older than two months.
+* The Payments tab keeps member names, phone numbers and amounts, which is why it's kept only in this browser. **Open in WhatsApp** hands the message to WhatsApp, the same as typing it yourself. Use **Settings → Delete old data** to clear payment lists older than two months.
 * The private AI refuses questions that contain NRIC, card numbers, phone numbers and similar, and offers to replace them.
 
 Use **Settings → Export backup** now and then. Clearing the browser's data wipes the hub.
@@ -49,9 +63,9 @@ Use **Settings → Export backup** now and then. Clearing the browser's data wip
 ## Optional: private AI on this computer
 
 1. Install [Ollama](https://ollama.com) on the front-desk computer.
-2. Open a terminal and run `ollama pull llama3.1:8b` (about 5 GB, once). Any model works: type its name in Settings.
+2. Open Command Prompt (Windows) or Terminal (Mac) and run `ollama pull llama3.1:8b` (about 5 GB, once). Any model works: type its name in Settings.
 3. Save the Staff Handbook from Word as **Plain Text (.txt)** and load it under **Ask & Redact → Load handbook**.
-4. If the badge says "not running" while Ollama is open, set an environment variable `OLLAMA_ORIGINS` to `*`, then restart Ollama. Pages opened from a file need this before they can talk to Ollama.
+4. Tell Ollama it may answer the hub. On Windows, open **Command Prompt** and run `setx OLLAMA_ORIGINS "https://darylhui.github.io"` (or `setx OLLAMA_ORIGINS "*"` if you open the hub as a file). Then quit Ollama from the system tray (right-click the llama icon → **Quit Ollama**) and start it again from the Start menu.
 
 An 8B model needs about 8 GB of free RAM and answers in a few seconds to a minute, depending on the computer. It's slower and less accurate than NotebookLM, so treat it as the option for questions that involve member situations. Always check fees and dates against the handbook.
 
@@ -66,7 +80,10 @@ Scripts are edited in the Scripts tab. Checklists, rates, follow-up journeys (th
 ## Files
 
 ```
-index.html   page shell and security policy
+index.html             page shell and security policy
+manifest.webmanifest   lets Edge/Chrome install it as an app
+sw.js                  offline cache when hosted
+icon-*.png, favicon    app icons
 style.css    look and feel (follows the computer's light/dark setting)
 data.js      all content from the handbook, edit this
 app.js       the logic
