@@ -32,7 +32,9 @@ On **Prospect & Trial**, open **Sync with your Excel sheet**. Every entry has a 
 
 * People already in the hub are updated; everyone else is added. A person is matched by name (and number, if both have one), so moving someone to a different row in Excel just updates their row number.
 * New entries from the last 2 weeks get follow-ups. Older ones, and anyone whose remarks say they signed, go under Finished.
-* Whatsapp Link, How did the prospect find out about us, and Schedule for Appt are kept exactly as they were in Excel. So are dates or times the hub can't read (like "Yes" under Followed Up).
+* **Whatsapp Link, How did the prospect find out about us, and Schedule for Appt are never touched.** The hub doesn't import them, and it always copies them back blank.
+* You can copy all 11 columns, or just the 8 others (for example with those three hidden). With the header row included, columns are matched by their names; without it, the hub works out which of the two it is. The preview shows how it's reading each column, and you can choose 11 or 8 yourself if it guesses wrong.
+* Dates or times the hub can't read (like "Yes" under Followed Up) go back exactly as typed.
 
 **Copy back to Excel.** In **2 · Copy back to Excel**, pick the rows (all of them by default) and click **Copy rows**. In Excel, click the **Name** cell in the first of those rows and paste: every row lands on its own row number, in the same 11 columns. **Copy N changed rows** above the cards does the same for just the rows that changed since you last copied.
 
