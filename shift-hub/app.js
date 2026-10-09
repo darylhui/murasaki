@@ -221,8 +221,13 @@
   // the journey counts from and `step` is the index of the next step to do.
   // Full names and numbers are kept because they go into the online Prospect &
   // Trial sheet; they stay in this browser otherwise.
-  const journey = (id) => D.journeys.find((j) => j.id === id) || D.journeys[0];
-  const CHANNELS = ["Walk-in", "WhatsApp", "Website", "Instagram / FB", "Email", "Phone", "Referral"];
+  // Follow-up sequences: the defaults from data.js until someone edits a step
+  // (Scripts → Follow-up steps); then the edited copy saved in S.journeys.
+  const journeys = () => S.journeys || D.journeys;
+  const journey = (id) => journeys().find((j) => j.id === id) || journeys()[0];
+  const CHANNELS = D.sources; // "How did the prospect find out about us"
+  // Earlier versions recorded how someone got in touch, not how they found us.
+  const OLD_CHANNEL = { "Walk-in": "On-Site (Posters/Walk-in/Gym-floor duty)", Website: "AF Website", "Instagram / FB": "Social Content (IG/FB Organic)", Referral: "Word-of-mouth (Referral)" };
   const TRIAL_STAGES = ["trial", "nosign", "friends"];
 
   function migrateLeads() {
@@ -233,13 +238,19 @@
         l.step = (l.done || []).length; l.name = l.who || "?"; l.history = [];
         ["rule", "done", "date", "who"].forEach((k) => delete l[k]);
       }
-      delete l.sheetExtra; // an earlier version echoed these columns back; they're never written now
+      delete l.sheetExtra; // an earlier version kept raw values for these columns
+      if ((l.v || 0) < 5 && l.v !== undefined) {
+        l.channel = OLD_CHANNEL[l.channel] || (CHANNELS.includes(l.channel) ? l.channel : "");
+        l.scheduleAppt = l.scheduleAppt || (l.trialDate ? "Yes" : "TBC");
+      }
+      if (l.v === 4) l.v = 5;
       if (l.v === 3) {
-        l.v = 4;
+        l.v = 5;
         l.remarks = (l.remarks || "").replace(/Came for trial (\d{1,2}\/\d{1,2}) \d{1,2}:\d{2}[ap]m(?:–\d{1,2}:\d{2}[ap]m \(\d+ min\))?/g, "Came for trial $1");
       }
       if (!l.v) {
-        l.v = 4;
+        l.v = 5;
+        l.channel = OLD_CHANNEL[l.channel] || ""; l.scheduleAppt = l.trialDate ? "Yes" : "TBC";
         l.enquiryDate = l.enquiryDate || l.created || l.anchor || todayStr();
         l.remarks = l.remarks ?? (l.interest ? "Looking for: " + l.interest : "");
         delete l.interest;
@@ -342,13 +353,22 @@
   function cell(l, field) {
     switch (field) {
       case "name": return l.name;
-      case "phone": return l.phone;
-      case "waLink": return l.phone ? `https://wa.me/${waNumber(l.phone)}` : "";
+      case "phone": { // drop a +65 country code so it reads like the other local numbers
+        const local = (l.phone || "").replace(/^\s*\+?65[\s-]*(?=[3689]\d{3}[\s-]?\d{4}\s*$)/, "");
+        return local;
+      }
+      case "waLink": {
+        const n = waNumber(l.phone);
+        if (n.length < 8) return "";
+        const url = `https://wa.me/${n}`;
+        return S.settings.waLinkStyle === "text" ? url : `=HYPERLINK("${url}")`;
+      }
       case "enquiryDate": return sheetDate(l.enquiryDate) || raw(l, "enquiryDate");
-      case "channel": return l.channel;
+      case "source": return l.channel || "";
+      case "scheduleAppt": return l.scheduleAppt || "";
       case "scheduler": return l.scheduler;
-      case "trialDate": return sheetDate(l.trialDate) || raw(l, "trialDate");
-      case "trialTime": return hm12(l.trialTime) || raw(l, "trialTime");
+      case "trialDate": return sheetDate(l.trialDate) || raw(l, "trialDate") || "TBC";
+      case "trialTime": return hm12(l.trialTime) || raw(l, "trialTime") || "TBC";
       case "followedUp": return sheetDate(l.followedUp) || raw(l, "followedUp");
       case "remarks": return l.remarks;
       default: return "";
@@ -357,15 +377,16 @@
   // The online Prospect & Trial sheet's columns, in order. This is fixed on
   // purpose: every copied row has exactly these 11 cells, whatever type of
   // prospect it is or what's been filled in. A column with nothing to put in
-  // it is left blank, never dropped. Whatsapp Link, How did the prospect find
-  // out about us and Schedule for Appt are never filled by the hub: always blank.
+  // it is left blank, never dropped. Trial Date and Trial Time say TBC when
+  // there isn't one. Whatsapp Link is a clickable wa.me link built from the
+  // contact number.
   const SHEET_COLUMNS = [
     { label: "Name", field: "name" },
     { label: "Contact Number", field: "phone" },
-    { label: "Whatsapp Link", field: "" },
+    { label: "Whatsapp Link", field: "waLink" },
     { label: "Date of Enquiry", field: "enquiryDate" },
-    { label: "How did the prospect find out about us", field: "" },
-    { label: "Schedule for Appt", field: "" },
+    { label: "How did the prospect find out about us", field: "source" },
+    { label: "Schedule for Appt", field: "scheduleAppt" },
     { label: "Scheduler", field: "scheduler" },
     { label: "Trial Date", field: "trialDate" },
     { label: "Trial Time", field: "trialTime" },
@@ -382,7 +403,8 @@
       .trim()
       .replace(/^[=+\-@\s]+/, "");
   }
-  const sheetCells = (l) => SHEET_COLUMNS.map((c) => sheetCell(cell(l, c.field)));
+  // The WhatsApp link is built by the hub from digits only, so it's safe as a formula.
+  const sheetCells = (l) => SHEET_COLUMNS.map((c) => (c.field === "waLink" ? cell(l, c.field) : sheetCell(cell(l, c.field))));
   const sheetRow = (l) => sheetCells(l).join("\t");
   const sheetState = (l) => (!l.loggedAt ? "new" : (l.updatedAt || 0) > l.loggedAt ? "changed" : "logged");
   const unlogged = () => S.leads.filter((l) => sheetState(l) !== "logged");
@@ -390,8 +412,8 @@
   // ---- sync with the Excel sheet
   // Each entry can carry `sheetRow`, its row number in the Excel sheet. Rows
   // copied back are laid out by row number, so one paste into the Name cell of
-  // the first row updates every row in place. Whatsapp Link, How did they find
-  // us and Schedule for Appt are never read or written: they're always blank.
+  // the first row updates every row in place. Whatsapp Link is always rebuilt
+  // from the contact number, so it isn't read on import.
   // Dates or times the hub can't read are kept as typed in `sheetRaw` and
   // written back as-is.
   const rowsInUse = () => S.leads.filter((l) => l.sheetRow).map((l) => l.sheetRow);
@@ -467,15 +489,15 @@
   // columns, but if Whatsapp Link, How did they find us and Schedule for Appt
   // are hidden or left out, it has 8. With the header row we go by the header
   // names; without it we work out which of the two layouts it is.
-  const LAYOUT_11 = ["name", "phone", "", "enquiryDate", "", "", "scheduler", "trialDate", "trialTime", "followedUp", "remarks"];
+  const LAYOUT_11 = ["name", "phone", "", "enquiryDate", "source", "scheduleAppt", "scheduler", "trialDate", "trialTime", "followedUp", "remarks"];
   const LAYOUT_8 = ["name", "phone", "enquiryDate", "scheduler", "trialDate", "trialTime", "followedUp", "remarks"];
-  const FIELD_LABEL = { name: "Name", phone: "Contact Number", enquiryDate: "Date of Enquiry", scheduler: "Scheduler", trialDate: "Trial Date", trialTime: "Trial Time", followedUp: "Followed Up", remarks: "Remarks" };
+  const FIELD_LABEL = { name: "Name", phone: "Contact Number", enquiryDate: "Date of Enquiry", source: "How did they find us", scheduleAppt: "Schedule for Appt", scheduler: "Scheduler", trialDate: "Trial Date", trialTime: "Trial Time", followedUp: "Followed Up", remarks: "Remarks" };
   function headerField(h) {
     h = (h || "").toLowerCase().replace(/\s+/g, " ").trim();
     if (!h) return null;
     if (/whats ?app|link/.test(h)) return "";
-    if (/find out|found us|how did|source/.test(h)) return "";
-    if (/schedule for|appt|appointment/.test(h)) return "";
+    if (/find out|found us|how did|source/.test(h)) return "source";
+    if (/schedule for|appt|appointment/.test(h)) return "scheduleAppt";
     if (/scheduler|scheduled by/.test(h)) return "scheduler";
     if (/trial/.test(h) && /time/.test(h)) return "trialTime";
     if (/trial/.test(h)) return "trialDate";
@@ -500,6 +522,21 @@
     const eleven = width >= 10 || (width === 9 && score11 >= score8) || (width <= 8 && score11 > score8 && width > 3);
     return eleven ? { fields: LAYOUT_11, headerAt: -1, how: "as all 11 columns" } : { fields: LAYOUT_8, headerAt: -1, how: "as 8 columns (no Whatsapp Link, How did they find us or Schedule for Appt)" };
   }
+  // Matches a "How did they find us" value to one of the dropdown options.
+  function matchSource(v) {
+    v = (v || "").trim();
+    if (!v) return "";
+    const low = v.toLowerCase();
+    const exact = CHANNELS.find((o) => o.toLowerCase() === low);
+    if (exact) return exact;
+    const hints = [[/website|web/, 0], [/organic|social|content/, 1], [/paid|ads?\b/, 2], [/edm|email/, 3], [/on-?site|walk|poster|floor/, 4], [/word|referr|friend/, 5], [/corporate|company/, 6]];
+    const hit = hints.find(([re]) => re.test(low));
+    return hit ? CHANNELS[hit[1]] : v;
+  }
+  function matchAppt(v) {
+    v = (v || "").trim();
+    return D.apptOptions.find((o) => o.toLowerCase() === v.toLowerCase()) || v;
+  }
 
   function planImport(text, startRow, mode = "auto") {
     const plan = [], notes = [];
@@ -518,7 +555,10 @@
       const enq = v.enquiryDate || "", tDate = v.trialDate || "", tTime = v.trialTime || "", followed = v.followedUp || "";
       if (!name) { notes.push(`Row ${row} has no name, so it was skipped.`); return; }
       const data = { name, phone, scheduler, remarks, sheetRaw: {} };
+      if ("source" in v) data.channel = matchSource(v.source);
+      if ("scheduleAppt" in v) data.scheduleAppt = matchAppt(v.scheduleAppt);
       for (const [k, v, fn] of [["enquiryDate", enq, parseSheetDate], ["trialDate", tDate, parseSheetDate], ["followedUp", followed, parseSheetDate], ["trialTime", tTime, parseSheetTime]]) {
+        if (/^(tbc|tba|-|nil|na|n\/a)$/i.test(v)) { data[k] = ""; continue; } // "TBC" means not set yet
         const p = fn(v);
         data[k] = p || "";
         if (p === null) data.sheetRaw[k] = v; // couldn't read it: keep it exactly as typed
@@ -551,7 +591,7 @@
         if (data.trialDate && data.trialDate !== oldTrial && data.trialDate >= today && !l.closed) startJourney(l, "trial", data.trialDate, "Trial date from sheet");
         updated++;
       } else {
-        l = { id: uid(), v: 4, type: "imported", created: today, history: [], channel: "", cat: "WARM", ...data, sheetRow: row };
+        l = { id: uid(), v: 5, type: "imported", created: today, history: [], channel: "", cat: "WARM", ...data, sheetRow: row };
         const signed = /\bsigned\b/i.test(data.remarks) && !/(didn.?t|did not|not|never)\s+sign/i.test(data.remarks);
         if (signed) { startJourney(l, "member", data.trialDate || data.enquiryDate || today); l.closed = true; l.outcome = "Signed (from sheet)"; }
         else if (data.trialDate && data.trialDate >= today) startJourney(l, "trial", data.trialDate, "Imported from sheet");
@@ -601,12 +641,12 @@
               <option value="8" ${S.ui.impLayout === "8" ? "selected" : ""}>8 columns (without Whatsapp Link, How did they find us, Schedule for Appt)</option></select></label>
             <p class="small">Reading it ${esc(imp.layout.how)}: ${imp.layout.fields.map((f) => (f ? esc(FIELD_LABEL[f]) : "<s>skipped</s>")).join(" · ")}</p>
             ${imp.notes.map((n) => `<div class="notice warn">${esc(n)}</div>`).join("")}
-            ${imp.plan.length ? `<div class="table-wrap"><table class="sheet-preview"><thead><tr><th>Row</th><th>Name</th><th>Contact</th><th>Enquiry</th><th>Scheduler</th><th>Trial date</th><th>Trial time</th><th>Followed up</th><th>Remarks</th><th></th></tr></thead><tbody>
-              ${imp.plan.map((p) => `<tr><td>${p.row}</td><td>${esc(p.data.name)}</td><td>${esc(p.data.phone)}</td><td>${esc(sheetDate(p.data.enquiryDate) || p.data.sheetRaw.enquiryDate || "")}</td><td>${esc(p.data.scheduler)}</td><td>${esc(sheetDate(p.data.trialDate) || p.data.sheetRaw.trialDate || "")}</td><td>${esc(hm12(p.data.trialTime) || p.data.sheetRaw.trialTime || "")}</td><td>${esc(sheetDate(p.data.followedUp) || p.data.sheetRaw.followedUp || "")}</td><td class="wrap">${esc(p.data.remarks)}</td><td>${actionBadge(p)}${p.occupant ? ` <span class="small overdue">replaces ${esc(p.occupant.name)}</span>` : ""}</td></tr>`).join("")}
+            ${imp.plan.length ? `<div class="table-wrap"><table class="sheet-preview"><thead><tr><th>Row</th><th>Name</th><th>Contact</th><th>Enquiry</th><th>Found us</th><th>Appt</th><th>Scheduler</th><th>Trial date</th><th>Trial time</th><th>Followed up</th><th>Remarks</th><th></th></tr></thead><tbody>
+              ${imp.plan.map((p) => `<tr><td>${p.row}</td><td>${esc(p.data.name)}</td><td>${esc(p.data.phone)}</td><td>${esc(sheetDate(p.data.enquiryDate) || p.data.sheetRaw.enquiryDate || "")}</td><td>${esc(p.data.channel || "")}</td><td>${esc(p.data.scheduleAppt || "")}</td><td>${esc(p.data.scheduler)}</td><td>${esc(sheetDate(p.data.trialDate) || p.data.sheetRaw.trialDate || "")}</td><td>${esc(hm12(p.data.trialTime) || p.data.sheetRaw.trialTime || "")}</td><td>${esc(sheetDate(p.data.followedUp) || p.data.sheetRaw.followedUp || "")}</td><td class="wrap">${esc(p.data.remarks)}</td><td>${actionBadge(p)}${p.occupant ? ` <span class="small overdue">replaces ${esc(p.occupant.name)}</span>` : ""}</td></tr>`).join("")}
               </tbody></table></div>
               <div class="row"><button class="btn btn-primary" data-act="imp-apply">Import ${imp.plan.length} row${imp.plan.length > 1 ? "s" : ""}</button><button class="btn btn-ghost" data-act="imp-clear">Clear</button>
               <span class="small muted">${imp.plan.filter((p) => p.action === "new").length} new · ${imp.plan.filter((p) => p.action === "update").length} updated</span></div>
-              <p class="small muted">New entries from the last 2 weeks get follow-ups. Older ones, and anyone whose remarks say they signed, are filed under Finished. Whatsapp Link, How did they find us and Schedule for Appt are never imported or copied back.</p>` : `<div class="notice">No rows with a name found.</div>`}` : ""}
+              <p class="small muted">New entries from the last 2 weeks get follow-ups. Older ones, and anyone whose remarks say they signed, are filed under Finished. Whatsapp Link isn't imported: it's always rebuilt from the contact number.</p>` : `<div class="notice">No rows with a name found.</div>`}` : ""}
         </div>
         <div class="stack">
           <h3>2 · Copy back to Excel</h3>
@@ -623,6 +663,9 @@
             <div class="row" style-top><label class="field">Starting at row<input type="number" id="num-start" min="1" value="${nextRow()}"></label>
             <button class="btn btn-sm" data-act="num-assign">Number them</button></div></div>` : ""}
           <label class="field">Next new prospect goes in row<input type="number" id="next-row" min="2" value="${nextRow()}"></label>
+          <label class="field">Whatsapp Link column<select id="wa-style">
+            <option value="formula" ${S.settings.waLinkStyle !== "text" ? "selected" : ""}>Clickable link (=HYPERLINK formula)</option>
+            <option value="text" ${S.settings.waLinkStyle === "text" ? "selected" : ""}>Plain link text</option></select></label>
         </div>
       </div>
     </details>`;
@@ -655,6 +698,7 @@
     if (l.trialDate) chips.push(`<span class="chip ${l.trialDate === todayStr() ? "chip-accent" : ""}">Trial ${l.trialDate === todayStr() ? "today" : shortDate(parse(l.trialDate))}${l.trialTime ? " · " + esc(hm12(l.trialTime)) : ""}</span>`);
     chips.push(`<span class="chip">Enquired ${esc(shortDate(parse(l.enquiryDate)))}</span>`);
     if (l.channel) chips.push(`<span class="chip">${esc(l.channel)}</span>`);
+    if (l.scheduleAppt) chips.push(`<span class="chip">Appt: ${esc(l.scheduleAppt)}</span>`);
     if (l.followedUp) chips.push(`<span class="chip">Followed up ${esc(shortDate(parse(l.followedUp)))}</span>`);
     const wa = l.phone ? `<a class="link" href="https://wa.me/${waNumber(l.phone)}" target="_blank" rel="noopener noreferrer">WhatsApp ↗</a>` : "";
 
@@ -703,7 +747,7 @@
     return `<article class="lead ${mode} ${due ? "is-due" : ""}">
       <header>
         <div class="who"><h3>${esc(l.name)}</h3><div class="small muted">${esc(l.phone || "no number")} ${wa}</div></div>
-        <div class="row tight">${isProspect && l.cat ? `<span class="badge ${l.cat.toLowerCase()}">${esc(l.cat)}</span>` : ""}<span class="badge">${esc(j.label)}</span></div>
+        <div class="row tight">${isProspect ? `<button class="badge badge-btn ${(l.cat || "warm").toLowerCase()}" data-act="lead-cat" data-id="${l.id}" title="Priority: tap to change">${esc(l.cat || "WARM")}</button>` : ""}<span class="badge">${esc(j.label)}</span></div>
       </header>
       <div class="chips">${chips.join("")}</div>
       ${body}
@@ -730,7 +774,30 @@
       member: (x) => x.n.journey.kind === "member",
       all: () => true,
     };
-    const shown = open.filter((x) => match[f](x) && (!q || (x.l.name + " " + x.l.phone).toLowerCase().includes(q)));
+    const fq = S.ui.fq || {};
+    const seqList = journeys();
+    const stepSeq = seqList.find((j) => j.id === fq.seq);
+    const maxSteps = Math.max(...seqList.map((j) => j.steps.length));
+    const prio = { HOT: 0, WARM: 1, COLD: 2 };
+    const shown = open.filter((x) => match[f](x) && (!q || (x.l.name + " " + x.l.phone).toLowerCase().includes(q))
+        && (!fq.seq || x.l.stage === fq.seq)
+        && (fq.step === undefined || fq.step === "" || x.n.idx === Number(fq.step))
+        && (!fq.cat || (x.l.cat || "WARM") === fq.cat)
+        && (!fq.src || (fq.src === "-" ? !x.l.channel : x.l.channel === fq.src)))
+      .sort((a, b) => fq.sort === "prio" ? (prio[a.l.cat || "WARM"] - prio[b.l.cat || "WARM"]) || (a.n.due - b.n.due)
+        : fq.sort === "name" ? a.l.name.localeCompare(b.l.name)
+        : fq.sort === "row" ? (a.l.sheetRow || 1e9) - (b.l.sheetRow || 1e9)
+        : a.n.due - b.n.due);
+    const filtering = fq.seq || (fq.step !== undefined && fq.step !== "") || fq.cat || fq.src;
+    const sel = (key, label, options) => `<label class="field">${label}<select data-fq="${key}">${options.map(([v, t]) => `<option value="${esc(v)}" ${String(fq[key] ?? "") === String(v) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>`;
+    const filterBar = `<div class="filters">
+        ${sel("seq", "Sequence", [["", "All"], ...seqList.map((j) => [j.id, j.label])])}
+        ${sel("step", "Step", [["", "Any step"], ...(stepSeq ? stepSeq.steps.map((s, i) => [i, `Step ${i + 1}: ${s.action}`]) : Array.from({ length: maxSteps }, (_, i) => [i, `Step ${i + 1}`]))])}
+        ${sel("cat", "Priority", [["", "All"], ["HOT", "HOT"], ["WARM", "WARM"], ["COLD", "COLD"]])}
+        ${sel("src", "Found us via", [["", "All"], ...CHANNELS.map((c) => [c, c]), ["-", "Not set"]])}
+        ${sel("sort", "Sort by", [["", "Due date"], ["prio", "Priority"], ["name", "Name"], ["row", "Sheet row"]])}
+        ${filtering ? '<button class="btn btn-sm btn-ghost" data-act="fq-clear">Clear filters</button>' : ""}
+      </div>`;
     const done = S.leads.filter((l) => !leadNext(l));
     const st = monthStats();
     const pending = unlogged().length;
@@ -762,6 +829,8 @@
           <input type="text" id="fu-q" class="w-auto" placeholder="Search name or number" value="${esc(S.ui.fuQ || "")}">
           ${pending ? `<button class="btn" data-act="lead-rows" title="Copies every row from the first to the last changed one, laid out by row number">Copy ${pending} changed row${pending > 1 ? "s" : ""}</button>` : ""}
         </div>
+        ${filterBar}
+        ${filtering ? `<p class="small muted">Showing ${shown.length} of ${open.filter(match[f]).length}.</p>` : ""}
         ${shown.length ? `<div class="lead-grid">${shown.map(({ l }) => leadCard(l)).join("")}</div>` : `<div class="empty card">${q ? `No one matches "${esc(q)}".` : f === "due" ? "Nothing due right now." : "No one here yet."}</div>`}
       </section>
       <div class="grid">
@@ -797,7 +866,8 @@
         ${f("name", "Name", "text", 'autocomplete="off" maxlength="60"')}
         ${f("phone", "Contact number", "tel", 'autocomplete="off" placeholder="9123 4567"')}
         ${f("enquiryDate", "Date of enquiry", "date")}
-        <label class="field">How they found us<select data-ld="channel">${CHANNELS.map((c) => `<option ${d.channel === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+        <label class="field">How did they find out about us<select data-ld="channel"><option value="">Not set</option>${[...CHANNELS, ...(d.channel && !CHANNELS.includes(d.channel) ? [d.channel] : [])].map((c) => `<option ${d.channel === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
+        <label class="field">Schedule for Appt<select data-ld="scheduleAppt">${D.apptOptions.map((c) => `<option ${(d.scheduleAppt || "TBC") === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>
         ${showTrial ? f("trialDate", "Trial date", "date") + f("trialTime", "Trial time", "time") : ""}
         ${f("scheduler", "Scheduler")}
         ${!isNew ? f("followedUp", "Followed up", "date") : ""}
@@ -818,7 +888,7 @@
 
   function newLeadDraft(typeId = S.ui.fuType || "trial-booked") {
     const t = D.customerTypes.find((x) => x.id === typeId) || D.customerTypes[0];
-    return { id: null, type: t.id, name: "", phone: "", enquiryDate: todayStr(), channel: t.source || "WhatsApp",
+    return { id: null, type: t.id, name: "", phone: "", enquiryDate: todayStr(), channel: t.source || "", scheduleAppt: t.appt || "TBC",
       trialDate: t.trial ? (t.id === "trial-booked" ? ymd(addDays(new Date(), 1)) : todayStr()) : "", trialTime: "",
       scheduler: S.settings.name || "", cat: "WARM", remarks: "", sheetRow: String(nextRow()) };
   }
@@ -835,7 +905,7 @@
     const taken = rowNum && leadAtRow(rowNum, d.id);
     if (taken) { msg.textContent = `Row ${rowNum} is already ${taken.name}. Pick another row, or change theirs first.`; return; }
     d.sheetRow = rowNum;
-    const fields = ["name", "phone", "enquiryDate", "channel", "trialDate", "trialTime", "scheduler", "followedUp", "cat", "remarks", "sheetRow"];
+    const fields = ["name", "phone", "enquiryDate", "channel", "scheduleAppt", "trialDate", "trialTime", "scheduler", "followedUp", "cat", "remarks", "sheetRow"];
     if (d.id) {
       const l = S.leads.find((x) => x.id === d.id);
       const trialMoved = l.stage === "trial" && d.trialDate && d.trialDate !== l.trialDate;
@@ -846,7 +916,7 @@
       S.ui.leadDraft = null; save(); render(); toast("Saved"); return;
     }
     const type = D.customerTypes.find((t) => t.id === d.type);
-    const l = { id: uid(), v: 4, type: type.id, created: todayStr(), history: [], followedUp: "" };
+    const l = { id: uid(), v: 5, type: type.id, created: todayStr(), history: [], followedUp: "" };
     fields.forEach((k) => { if (k in d) l[k] = d[k]; });
     if (!type.trial && !type.checkIn) { l.trialDate = ""; l.trialTime = ""; }
     const anchor = { enquiry: l.enquiryDate, trial: l.trialDate || todayStr(), nosign: l.trialDate, friends: l.trialDate, member: type.id === "trial-signed" ? (l.trialDate || todayStr()) : l.enquiryDate }[type.journey] || todayStr();
@@ -1277,6 +1347,7 @@ Should your circumstances change, we would be delighted to welcome you back in t
           ${S.settings.name ? "" : `<div class="notice warn" style-top>Add your name in Settings so it's filled into every script.</div>`}
           <div id="sc-list" style-top></div>
         </section>
+        ${renderSequences()}
         <section class="card stack"><h2>Share and sync</h2>
           <p class="small muted">Update the promotions on one computer, export them, then import the file on the other front-desk computers. "Copy all in use" gives you every live script in one go, for updating WhatsApp Business quick replies.</p>
           <div class="row"><button class="btn" data-act="sc-export">Export scripts</button>
@@ -1284,6 +1355,44 @@ Should your circumstances change, we would be delighted to welcome you back in t
             <button class="btn" data-act="sc-copy-all">Copy all in use</button></div>
         </section>
       </div>`;
+  }
+
+  // Which follow-up steps send this script, e.g. "Didn't sign · step 2".
+  function scriptUses(key) {
+    const k = String(key).toLowerCase();
+    const out = [];
+    journeys().forEach((j) => j.steps.forEach((s, i) => { if (s.script && s.script.toLowerCase() === k) out.push(`${j.label} · step ${i + 1}`); }));
+    return out;
+  }
+  // Edits go to a copy of the sequences saved in S.journeys.
+  function editableJourneys() {
+    if (!S.journeys) S.journeys = JSON.parse(JSON.stringify(D.journeys));
+    return S.journeys;
+  }
+  function renderSequences() {
+    const list = journeys();
+    const j = list.find((x) => x.id === S.ui.seqId) || list.find((x) => x.id === "nosign") || list[0];
+    const opts = (cur) => `<option value="">No message</option>${S.scripts.map((s) => `<option value="${esc(s.key)}" ${cur && cur.toLowerCase() === s.key.toLowerCase() ? "selected" : ""}>${esc(s.key)}${scriptStatus(s).id === "expired" ? " (expired)" : ""}</option>`).join("")}${cur && !findScript(cur) ? `<option selected value="${esc(cur)}">${esc(cur)} (missing)</option>` : ""}`;
+    const rows = j.steps.map((s, i) => s.outcome
+      ? `<li class="seq-step fixed"><span class="seq-n">${i + 1}</span><div><b>${esc(s.action)}</b><p class="small muted">Day ${s.d} · fixed step: check-in and trial outcome</p></div></li>`
+      : `<li class="seq-step"><span class="seq-n">${i + 1}</span>
+          <div class="seq-fields">
+            <label class="field">Step name<input type="text" data-seq="action" data-i="${i}" value="${esc(s.action)}"></label>
+            <label class="field">Days after ${esc(j.anchor.toLowerCase())}<input type="number" data-seq="d" data-i="${i}" value="${s.d}" min="-30" max="365"></label>
+            <label class="field">Script<select data-seq="script" data-i="${i}">${opts(s.script)}</select></label>
+          </div>
+          <div class="row tight seq-acts">
+            <button class="btn btn-sm btn-ghost" data-act="seq-up" data-i="${i}" ${i === 0 ? "disabled" : ""} aria-label="Move up">↑</button>
+            <button class="btn btn-sm btn-ghost" data-act="seq-down" data-i="${i}" ${i === j.steps.length - 1 ? "disabled" : ""} aria-label="Move down">↓</button>
+            <button class="btn btn-sm btn-ghost btn-danger" data-act="seq-del" data-i="${i}" aria-label="Remove step">✕</button>
+          </div></li>`).join("");
+    return `<section class="card stack" id="seq-card">
+      <div class="card-head"><h2>Follow-up steps</h2>${S.journeys ? '<button class="btn btn-sm btn-ghost" data-act="seq-reset">Reset all to default</button>' : ""}</div>
+      <p class="small muted">Choose what each step is called, when it's due and which script it uses. Prospects move through the steps in this order on the Prospect &amp; Trial page.</p>
+      <div class="seg" role="group" aria-label="Sequence">${list.map((x) => `<button data-act="seq-pick" data-id="${x.id}" aria-pressed="${x.id === j.id}">${esc(x.label)}</button>`).join("")}</div>
+      <ol class="seq-list">${rows}</ol>
+      <div class="row"><button class="btn btn-sm" data-act="seq-add">+ Add step</button><span class="small muted">Steps are due in day order. Moving a step up or down changes its number.</span></div>
+    </section>`;
   }
 
   function renderScriptEditor() {
@@ -1332,6 +1441,7 @@ Should your circumstances change, we would be delighted to welcome you back in t
           <button class="btn btn-sm btn-ghost" data-act="sc-edit" data-id="${s.id}">Edit</button>
           <button class="btn btn-sm btn-primary" data-act="copy-script" data-id="${s.id}">Copy</button></div>
         <p class="small muted">${esc(s.when)}</p>
+        ${scriptUses(s.key).length ? `<div class="chips">${scriptUses(s.key).map((u) => `<span class="chip chip-row">${esc(u)}</span>`).join("")}</div>` : ""}
         <details><summary>Preview</summary><pre class="out">${esc(fill(s.text, { name: S.ui.scName }))}</pre></details>
       </div>`;
     }).join("")}</div>`).join("") : `<div class="empty">${q ? `No script matches "${esc(q)}".` : "Nothing here."}</div>`;
@@ -1348,6 +1458,9 @@ Should your circumstances change, we would be delighted to welcome you back in t
     if (d.type === "promo" && d.start && d.end && d.end < d.start) { msg.textContent = "The end date is before the start date."; return; }
     if (d.type !== "promo") { d.start = ""; d.end = ""; }
     const existing = S.scripts.find((s) => s.id === d.id);
+    if (existing && existing.key !== d.key && scriptUses(existing.key).length) {
+      editableJourneys().forEach((j) => j.steps.forEach((s) => { if (s.script && s.script.toLowerCase() === existing.key.toLowerCase()) s.script = d.key; }));
+    }
     if (existing) Object.assign(existing, d, { draft: false });
     else S.scripts.push({ ...d, id: uid(), pending: "", draft: false });
     S.ui.scDraft = null; save(); render(); toast(`${d.key} saved`);
@@ -1463,7 +1576,7 @@ Should your circumstances change, we would be delighted to welcome you back in t
     k.push("Bundles: " + D.bundles.map((b) => `${b.label} ${b.discount * 100}% off 12 or 18 month rate, enrolment waived, access pass still applies`).join("; ") + ".");
     k.push("Shift checklists:\n" + D.shifts.map((s) => `${s.label}: ` + s.items.map((i) => i.text + (i.due ? ` (by ${i.due})` : "")).join("; ")).join("\n"));
     k.push("Cleanliness standard: " + D.cleanStandard.join("; ") + ".");
-    k.push("Follow-up journeys (day counted from the anchor date):\n" + D.journeys.map((j) => `${j.label} (from ${j.anchor}): ` + j.steps.map((s) => `day ${s.d}: ${s.action}${s.script ? " (" + s.script + ")" : ""}`).join("; ")).join("\n"));
+    k.push("Follow-up journeys (day counted from the anchor date):\n" + journeys().map((j) => `${j.label} (from ${j.anchor}): ` + j.steps.map((s) => `day ${s.d}: ${s.action}${s.script ? " (" + s.script + ")" : ""}`).join("; ")).join("\n"));
     k.push(`Monthly dues: payments are collected on the ${D.dues.collectDay}st at 00:00. Unpaid (yellow) members are chased until the ${D.dues.deadlineDay}th at 00:00. EZpay makes a second deduction at 00:00 on the ${D.dues.deadlineDay}th; if that fails a $${D.fees.latePayment} late fee is added.`);
     k.push("WhatsApp scripts in use today:\n" + S.scripts.filter((s) => scriptStatus(s).id === "active").map((s) => `${s.key} (${s.cat}${s.type === "promo" && s.end ? ", promotion until " + s.end : ""}) — ${s.when}\n${s.text}`).join("\n\n"));
     return k.join("\n\n");
@@ -1545,8 +1658,9 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
       case "copy-handover": copy(handoverText(), "Handover copied"); break;
 
       case "fu-filter": S.ui.fuFilter = id; save(); render(); break;
+      case "fq-clear": S.ui.fq = { sort: (S.ui.fq || {}).sort }; save(); render(); break;
       case "lead-new": S.ui.leadDraft = newLeadDraft(); save(); render(); document.querySelector('[data-ld="name"]')?.focus(); break;
-      case "ld-type": { const keep = S.ui.leadDraft; S.ui.leadDraft = Object.assign(newLeadDraft(id), { name: keep.name, phone: keep.phone, remarks: keep.remarks, scheduler: keep.scheduler || S.settings.name }); save(); render(); break; }
+      case "ld-type": { const keep = S.ui.leadDraft; S.ui.leadDraft = Object.assign(newLeadDraft(id), { name: keep.name, phone: keep.phone, remarks: keep.remarks, scheduler: keep.scheduler || S.settings.name, sheetRow: keep.sheetRow }); save(); render(); break; }
       case "ld-save": saveLead(); break;
       case "ld-tag": {
         const d = S.ui.leadDraft; d.remarks = toggleTag(d.remarks, b.dataset.tag); save();
@@ -1559,7 +1673,7 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
         const ta = document.querySelector(`[data-remarks="${id}"]`); if (ta) ta.value = l.remarks; break;
       }
       case "ld-cancel": S.ui.leadDraft = null; save(); render(); break;
-      case "lead-edit": { const l = S.leads.find((x) => x.id === id); S.ui.leadDraft = { id: l.id, type: l.type, name: l.name, phone: l.phone, enquiryDate: l.enquiryDate, channel: l.channel, trialDate: l.trialDate || "", trialTime: l.trialTime || "", scheduler: l.scheduler || "", followedUp: l.followedUp || "", cat: l.cat || "WARM", remarks: l.remarks || "", sheetRow: l.sheetRow ? String(l.sheetRow) : "", sheetRaw: l.sheetRaw }; save(); render(); window.scrollTo(0, 0); break; }
+      case "lead-edit": { const l = S.leads.find((x) => x.id === id); S.ui.leadDraft = { id: l.id, type: l.type, name: l.name, phone: l.phone, enquiryDate: l.enquiryDate, channel: l.channel || "", scheduleAppt: l.scheduleAppt || "TBC", trialDate: l.trialDate || "", trialTime: l.trialTime || "", scheduler: l.scheduler || "", followedUp: l.followedUp || "", cat: l.cat || "WARM", remarks: l.remarks || "", sheetRow: l.sheetRow ? String(l.sheetRow) : "", sheetRaw: l.sheetRaw }; save(); render(); window.scrollTo(0, 0); break; }
       case "lead-step": { const l = S.leads.find((x) => x.id === id); const n = leadNext(l); if (n) { l.history.push({ d: todayStr(), t: n.action }); l.step++; l.followedUp = todayStr(); touch(l); } save(); render(); break; }
       case "lead-copy": {
         const l = S.leads.find((x) => x.id === id); const n = leadNext(l); const sc = findScript(n.script);
@@ -1567,6 +1681,7 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
         if (scriptStatus(sc).id === "expired" && !confirm(`${sc.key} has expired. Copy it anyway?`)) break;
         copy(fill(sc.text, { name: /^[A-Z]{1,4}$/.test(l.name) ? "" : l.name.split(" ")[0] }), `${sc.key} copied for ${l.name}`); break;
       }
+      case "lead-cat": { const l = S.leads.find((x) => x.id === id); const order = ["HOT", "WARM", "COLD"]; l.cat = order[(order.indexOf(l.cat || "WARM") + 1) % 3]; save(); render(); break; }
       case "lead-checkin": { const l = S.leads.find((x) => x.id === id); checkIn(l); save(); render(); toast(`${l.name} checked in`); break; }
       case "lead-checkout": { const l = S.leads.find((x) => x.id === id); checkOut(l); save(); render(); toast(`${l.name} checked out`); break; }
       case "lead-trial": { const l = S.leads.find((x) => x.id === id); recordTrial(l, b.dataset.o); save(); render(); break; }
@@ -1578,7 +1693,7 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
         const d2 = parseDateInput(parts[0]);
         if (!d2) { toast("Couldn't read that date"); break; }
         const t2 = parseTimeInput(parts.slice(1).join(" "));
-        l.trialDate = d2; if (t2) l.trialTime = t2; l.checkIn = null; l.checkOut = null;
+        l.trialDate = d2; if (t2) l.trialTime = t2; l.checkIn = null; l.checkOut = null; l.scheduleAppt = "Yes";
         startJourney(l, "trial", d2, "Booked a trial"); touch(l); save(); render(); break;
       }
       case "lead-signed": { const l = S.leads.find((x) => x.id === id); if (l.stage === "nosign" || l.stage === "friends") { l.trialOutcome = "signed"; l.outcomeDate = todayStr(); } addRemark(l, "Signed"); startJourney(l, "member", todayStr(), "Signed up"); save(); render(); toast(`${l.name} moved to new members`); break; }
@@ -1648,11 +1763,27 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
         copy(fill(sc.text, { name: S.ui.scName }), `${sc.key} copied`); break;
       }
       case "sc-filter": S.ui.scFilter = id; save(); render(); break;
+      case "seq-pick": S.ui.seqId = id; save(); render(); break;
+      case "seq-up": case "seq-down": case "seq-del": case "seq-add": {
+        const j = editableJourneys().find((x) => x.id === (S.ui.seqId || "nosign")) || editableJourneys()[0];
+        S.ui.seqId = j.id;
+        const i = Number(b.dataset.i);
+        if (act === "seq-up" && i > 0 && !j.steps[i - 1].outcome) [j.steps[i - 1], j.steps[i]] = [j.steps[i], j.steps[i - 1]];
+        if (act === "seq-down" && i < j.steps.length - 1 && !j.steps[i + 1].outcome) [j.steps[i + 1], j.steps[i]] = [j.steps[i], j.steps[i + 1]];
+        if (act === "seq-del" && confirm(`Remove step ${i + 1} (${j.steps[i].action})? Anyone on this step moves to the next one.`)) {
+          j.steps.splice(i, 1);
+          S.leads.forEach((l) => { if (l.stage === j.id && l.step > i) l.step--; }); // keep later steps' people on the same message
+        }
+        if (act === "seq-add") { const last = j.steps[j.steps.length - 1]; j.steps.push({ d: (last ? last.d : 0) + 7, action: "New step", script: "" }); }
+        save(); render(); document.getElementById("seq-card")?.scrollIntoView({ block: "nearest" }); break;
+      }
+      case "seq-reset": if (confirm("Put every follow-up sequence back to the default steps?")) { S.journeys = null; save(); render(); } break;
       case "sc-new": S.ui.scDraft = { id: null, key: "/", cat: "Promotions", type: "promo", start: todayStr(), end: "", when: "", text: "Hi [NAME]! [Your Name] from Anytime Fitness Orchard here 💜\n" }; save(); render(); break;
       case "sc-edit": { const sc = S.scripts.find((x) => x.id === id); S.ui.scDraft = { id: sc.id, key: sc.key, cat: sc.cat, type: sc.type, start: sc.start || "", end: sc.end || "", when: sc.when, text: sc.text }; save(); render(); break; }
       case "sd-save": saveScriptDraft(); break;
       case "sd-cancel": S.ui.scDraft = null; save(); render(); break;
-      case "sd-delete": { const sc = S.scripts.find((x) => x.id === S.ui.scDraft.id); if (confirm(`Delete ${sc.key}?`)) { S.scripts = S.scripts.filter((x) => x.id !== sc.id); S.ui.scDraft = null; save(); render(); } break; }
+      case "sd-delete": { const sc = S.scripts.find((x) => x.id === S.ui.scDraft.id); if (confirm(`Delete ${sc.key}?${scriptUses(sc.key).length ? ` It's used in: ${scriptUses(sc.key).join(", ")}. Those steps will have no message.` : ""}`)) {
+        if (scriptUses(sc.key).length) editableJourneys().forEach((j) => j.steps.forEach((s) => { if (s.script && s.script.toLowerCase() === sc.key.toLowerCase()) s.script = ""; })); S.scripts = S.scripts.filter((x) => x.id !== sc.id); S.ui.scDraft = null; save(); render(); } break; }
       case "sd-restore": {
         const sc = S.scripts.find((x) => x.id === S.ui.scDraft.id); const b0 = D.scripts.find((x) => x.key === sc.builtin);
         if (b0 && confirm(`Put ${sc.key} back to the handbook wording?`)) { Object.assign(sc, builtinCopy(b0), { id: sc.id }); S.ui.scDraft = null; save(); render(); }
@@ -1728,6 +1859,12 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
     if (t.dataset.k) { S.calc[t.dataset.k] = t.value; save(); updateCalc(); return; }
     if (t.dataset.s && t.tagName !== "SELECT") { S.settings[t.dataset.s] = t.value; save(); return; }
     if (t.dataset.sd && t.tagName !== "SELECT") { S.ui.scDraft[t.dataset.sd] = t.value; save(); return; }
+    if (t.dataset.seq && t.tagName !== "SELECT") {
+      const j = editableJourneys().find((x) => x.id === (S.ui.seqId || "nosign")) || editableJourneys()[0];
+      const s = j.steps[Number(t.dataset.i)];
+      if (t.dataset.seq === "d") { const n = parseInt(t.value, 10); if (!isNaN(n)) s.d = n; } else s.action = t.value;
+      save(); return;
+    }
     if (t.dataset.ld !== undefined && t.tagName !== "SELECT") { S.ui.leadDraft[t.dataset.ld] = t.value; save(); updateLeadPreview(); return; }
     if (t.dataset.remarks) { const l = S.leads.find((x) => x.id === t.dataset.remarks); l.remarks = t.value; touch(l); save(); return; }
     if (["imp-text", "imp-start", "exp-from", "exp-to"].includes(t.id)) {
@@ -1780,6 +1917,18 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
     if (t.dataset.ld !== undefined && t.tagName === "SELECT") { S.ui.leadDraft[t.dataset.ld] = t.value; save(); updateLeadPreview(); return; }
     if (t.dataset.reason) { const l = S.leads.find((x) => x.id === t.dataset.reason); l.reason = t.value; l.reasonDate = todayStr(); if (t.value) addRemark(l, `Reason: ${t.value}`); save(); render(); return; }
     if (t.dataset.duesStatus) { markDues(duesList().find((x) => x.id === t.dataset.duesStatus), t.value); save(); render(); return; }
+    if (t.dataset.seq && t.tagName === "SELECT") {
+      const j = editableJourneys().find((x) => x.id === (S.ui.seqId || "nosign")) || editableJourneys()[0];
+      j.steps[Number(t.dataset.i)].script = t.value; save(); render(); toast("Step updated"); return;
+    }
+    if (t.dataset.fq) {
+      S.ui.fq = Object.assign({}, S.ui.fq, { [t.dataset.fq]: t.value });
+      if (t.dataset.fq === "seq") S.ui.fq.step = ""; // step numbers differ per sequence
+      // Filtering by step means looking at everyone, not just who's due now.
+      if ((t.dataset.fq === "seq" || t.dataset.fq === "step" || t.dataset.fq === "cat" || t.dataset.fq === "src") && t.value && (S.ui.fuFilter || "due") === "due") S.ui.fuFilter = "all";
+      save(); render(); return;
+    }
+    if (t.id === "wa-style") { S.settings.waLinkStyle = t.value; save(); toast("Saved"); return; }
     if (t.id === "imp-layout") { S.ui.impLayout = t.value; save(); rerenderSync("imp-layout"); return; }
     if (t.id === "dues-file") { readFile(t, importMembers); return; }
     if (t.id === "sc-file") {
