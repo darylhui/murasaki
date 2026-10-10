@@ -250,7 +250,7 @@
     const lines = [`${club().code} handover · ${longDate(new Date())} · ${shift.label} · ${me()}`, ""];
     const doneN = shift.items.filter((i) => d.done[i.id]).length;
     lines.push(`Checklist (${doneN}/${shift.items.length} done):`);
-    shift.items.forEach((i) => lines.push(`${d.done[i.id] ? "✅" : "❎"} ${i.text}${i.due ? ` (${i.due})` : ""}${d.notes[i.id] ? ` - ${d.notes[i.id]}` : ""}`));
+    shift.items.forEach((i) => lines.push(`${d.done[i.id] ? "✅" : "❌"} ${i.text}${i.due ? ` (${i.due})` : ""}${d.notes[i.id] ? ` - ${d.notes[i.id]}` : ""}`));
     const due = dueFollowups();
     const gym = S.leads.filter(inGym);
     if (gym.length) lines.push("", "Trials still in the gym:", ...gym.map((l) => `- ${initials(l.name)}, in since ${time12(new Date(l.checkIn))}`));
