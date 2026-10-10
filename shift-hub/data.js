@@ -126,19 +126,12 @@ window.AFO = {
       ],
     },
     {
-      id: "nosign", label: "Trialled or toured, didn't sign", anchor: "Trial / tour date", kind: "prospect",
+      id: "nosign", label: "Trial, didn't sign", anchor: "Trial date", kind: "prospect",
       steps: [
         { d: 1, action: "Ask what they were looking for and what held them back", script: "/TrialNoSign" },
         { d: 3, action: "Follow up (within 3 days)", script: "/Trialfollowup" },
         { d: 7, action: "Offer the current promotion", script: "/Reengage" },
         { d: 21, action: "Re-engage when the next promotion starts", script: "/Reengage" },
-      ],
-    },
-    {
-      id: "friends", label: "Trialled with friends, not keen", anchor: "Trial date", kind: "prospect",
-      steps: [
-        { d: 2, action: "Pitch the Duo / Trio bundle to the group", script: "/TrialFriends" },
-        { d: 14, action: "Re-engage with the next promotion", script: "/Reengage" },
       ],
     },
     {
@@ -152,11 +145,14 @@ window.AFO = {
   ],
 
   // How someone first comes in. Each starts a journey. `trial: true` shows the
-  // trial date and time fields; `checkIn: true` checks them in straight away.
+  // trial date and time fields. `checkIn: true` (Walk-in Trial) hides the
+  // dates: enquiry date, trial date and time are set to the moment they're
+  // added, and they're checked in straight away.
   // Everything else about them goes in Remarks (see remarkTags).
   customerTypes: [
     { id: "enquiry", label: "Enquiry", journey: "enquiry", source: "", appt: "TBC" },
-    { id: "trial-booked", label: "Trial", journey: "trial", source: "", appt: "Yes", trial: true },
+    { id: "trial-booked", label: "Book Trial", journey: "trial", source: "", appt: "Yes", trial: true },
+    { id: "walkin-trial", label: "Walk-in Trial", journey: "trial", source: "On-Site (Posters/Walk-in/Gym-floor duty)", appt: "No", checkIn: true },
   ],
 
   // "How did the prospect find out about us": the options in the sheet's dropdown.

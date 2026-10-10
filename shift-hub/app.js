@@ -21,7 +21,7 @@
   const hhmm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   const uid = () => Math.random().toString(36).slice(2, 10);
   const todayStr = () => ymd(new Date());
-  const pendingBadge = (p) => (p ? `<span class="badge pending" title="Still to be confirmed by the manager in the handbook">pending ${esc(p)}</span>` : "");
+  const pendingBadge = () => ""; // "pending CONFIRM #n" tags are switched off
 
   function toast(msg) {
     const t = document.getElementById("toast");
@@ -45,7 +45,7 @@
     settings: {
       name: "", title: "Club Associate",
       ollamaUrl: "http://localhost:11434", model: "llama3.1:8b",
-      partialWeeks: "up", divisor: "30",
+      partialWeeks: "exact", divisor: "30",
     },
     days: {}, leads: [], trainees: [], activeTrainee: null,
     dues: {}, eod: {}, scripts: null, scriptSeed: [],
@@ -55,7 +55,12 @@
   try { S = Object.assign(defaults(), JSON.parse(localStorage.getItem(KEY) || "{}")); }
   catch { S = defaults(); }
   function init() {
+    if (S.journeys) {
+      S.journeys = S.journeys.filter((j) => j.id !== "friends");
+      S.journeys.forEach((j) => { if (j.id === "nosign" && /^Trialled or toured/.test(j.label)) { j.label = "Trial, didn't sign"; j.anchor = "Trial date"; } });
+    }
     S.settings = Object.assign(defaults().settings, S.settings);
+    if (!S.settings.pwV) { S.settings.partialWeeks = "exact"; S.settings.pwV = 1; } // new default: 1 week = 7 days
     S.ui = S.ui || {}; S.dues = S.dues || {}; S.leads = S.leads || [];
     migrateLeads(); seedScripts();
   }
@@ -77,7 +82,7 @@
     const c = club();
     document.title = `${c.code} Shift Hub`;
     const small = document.querySelector(".brand-text small");
-    if (small) small.textContent = `${c.area || c.code} · offline`;
+    if (small) small.textContent = c.area || c.code;
   }
   // Fill a script's placeholders. [Month]/[Amount] are only replaced when given.
   function fill(text, v = {}) {
@@ -153,11 +158,17 @@
     }
     return S.days[k];
   }
+  // Shift checklists: data.js defaults until someone edits them, then the copy in S.shifts.
+  const shifts = () => S.shifts || D.shifts;
+  function editableShifts() {
+    if (!S.shifts) S.shifts = JSON.parse(JSON.stringify(D.shifts));
+    return S.shifts;
+  }
   const dueDate = (hm) => { const [h, m] = hm.split(":").map(Number); const d = new Date(); d.setHours(h, m, 0, 0); return d; };
 
   function renderToday() {
     const d = day();
-    const shift = D.shifts.find((s) => s.id === d.shift) || D.shifts[0];
+    const shift = shifts().find((s) => s.id === d.shift) || shifts()[0];
     const now = new Date();
     const doneCount = shift.items.filter((i) => d.done[i.id]).length;
     const next = shift.items.filter((i) => i.due && !d.done[i.id]).sort((a, b) => a.due.localeCompare(b.due))[0];
@@ -183,8 +194,8 @@
     return `
       <div class="page-head">
         <div><h1>${esc(greeting())}${S.settings.name ? ", " + esc(S.settings.name) : ""}</h1>
-        <p>${esc(longDate(now))} · checklists from handbook section 11</p></div>
-        <div class="seg" role="group" aria-label="Shift">${D.shifts.map((s) => `<button data-act="shift" data-id="${s.id}" aria-pressed="${s.id === shift.id}">${esc(s.label)}</button>`).join("")}</div>
+        <p>${esc(longDate(now))}</p></div>
+        <div class="seg" role="group" aria-label="Shift">${shifts().map((s) => `<button data-act="shift" data-id="${s.id}" aria-pressed="${s.id === shift.id}">${esc(s.label)}</button>`).join("")}</div>
       </div>
       <div class="grid grid-2">
         <section class="card"><h2>Next timed check</h2>${nextHtml}</section>
@@ -198,8 +209,10 @@
       </div>
       <div class="grid grid-2" style-gap>
         <section class="card">
-          <div class="card-head"><h2>${esc(shift.label)} checklist</h2><button class="btn btn-sm btn-ghost" data-act="reset-day">Reset</button></div>
-          <ul class="checklist">${items}</ul>
+          <div class="card-head"><h2>${esc(shift.label)} checklist</h2>
+            <div class="row tight">${S.ui.editChecklist ? "" : '<button class="btn btn-sm btn-ghost" data-act="reset-day" title="Untick everything for today">Reset</button>'}
+              <button class="btn btn-sm ${S.ui.editChecklist ? "btn-primary" : ""}" data-act="cl-edit">${S.ui.editChecklist ? "Done" : "Edit"}</button></div></div>
+          ${S.ui.editChecklist ? renderChecklistEditor(shift) : `<ul class="checklist">${items}</ul>`}
         </section>
         <div class="stack">
           <section class="card"><h2>What "clean" means</h2><ul class="plain">${D.cleanStandard.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>
@@ -213,18 +226,31 @@
       </div>
       ${shift.id === "closing" ? `<div style-gap>${renderEod()}</div>` : ""}`;
   }
+  function renderChecklistEditor(shift) {
+    const rows = shift.items.map((i, k) => `<li class="cl-edit">
+        <input type="text" data-cl="text" data-i="${k}" value="${esc(i.text)}" aria-label="To-do">
+        <input type="time" data-cl="due" data-i="${k}" value="${esc(i.due || "")}" aria-label="Due by (optional)" title="Due by (optional)">
+        <label class="small cl-photo"><input type="checkbox" data-cl="photo" data-i="${k}" ${i.photo ? "checked" : ""}> photo</label>
+        <div class="row tight">
+          <button class="btn btn-sm btn-ghost" data-act="cl-up" data-i="${k}" ${k === 0 ? "disabled" : ""} aria-label="Move up">↑</button>
+          <button class="btn btn-sm btn-ghost" data-act="cl-down" data-i="${k}" ${k === shift.items.length - 1 ? "disabled" : ""} aria-label="Move down">↓</button>
+          <button class="btn btn-sm btn-ghost btn-danger" data-act="cl-del" data-i="${k}" aria-label="Remove">✕</button>
+        </div></li>`).join("");
+    return `<p class="small muted">Rename, reorder or remove to-dos, or add your own. Add a time to make it a timed check with a countdown.</p>
+      <ul class="cl-list">${rows}</ul>
+      <div class="row" style-top><button class="btn btn-sm" data-act="cl-add">+ Add to-do</button><span class="spacer"></span>
+        ${S.shifts ? '<button class="btn btn-sm btn-ghost" data-act="cl-reset">Reset all checklists to default</button>' : ""}</div>`;
+  }
   const addMin = (d, m) => new Date(d.getTime() + m * 60000);
   function greeting() { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"; }
 
   function handoverText() {
     const d = day();
-    const shift = D.shifts.find((s) => s.id === d.shift);
+    const shift = shifts().find((s) => s.id === d.shift) || shifts()[0];
     const lines = [`${club().code} handover · ${longDate(new Date())} · ${shift.label} · ${me()}`, ""];
-    const notDone = shift.items.filter((i) => !d.done[i.id]);
-    lines.push(`Checklist: ${shift.items.length - notDone.length}/${shift.items.length} done`);
-    if (notDone.length) lines.push("Not done:", ...notDone.map((i) => `- ${i.text}${d.notes[i.id] ? " (" + d.notes[i.id] + ")" : ""}`));
-    const noted = shift.items.filter((i) => d.done[i.id] && d.notes[i.id]);
-    if (noted.length) lines.push("Notes:", ...noted.map((i) => `- ${i.text}: ${d.notes[i.id]}`));
+    const doneN = shift.items.filter((i) => d.done[i.id]).length;
+    lines.push(`Checklist (${doneN}/${shift.items.length} done):`);
+    shift.items.forEach((i) => lines.push(`${d.done[i.id] ? "✅" : "❌"} ${i.text}${i.due ? ` (${i.due})` : ""}${d.notes[i.id] ? ` - ${d.notes[i.id]}` : ""}`));
     const due = dueFollowups();
     const gym = S.leads.filter(inGym);
     if (gym.length) lines.push("", "Trials still in the gym:", ...gym.map((l) => `- ${initials(l.name)}, in since ${time12(new Date(l.checkIn))}`));
@@ -249,7 +275,7 @@
   const CHANNELS = D.sources; // "How did the prospect find out about us"
   // Earlier versions recorded how someone got in touch, not how they found us.
   const OLD_CHANNEL = { "Walk-in": "On-Site (Posters/Walk-in/Gym-floor duty)", Website: "AF Website", "Instagram / FB": "Social Content (IG/FB Organic)", Referral: "Word-of-mouth (Referral)" };
-  const TRIAL_STAGES = ["trial", "nosign", "friends"];
+  const TRIAL_STAGES = ["trial", "nosign"];
 
   function migrateLeads() {
     const map = { enquiry: "enquiry", tour: "nosign", trial: "nosign" };
@@ -260,6 +286,7 @@
         ["rule", "done", "date", "who"].forEach((k) => delete l[k]);
       }
       delete l.sheetExtra; // an earlier version kept raw values for these columns
+      if (l.stage === "friends") { l.stage = "nosign"; l.step = Math.min(l.step || 0, 1); if (l.trialOutcome === "friends") l.trialOutcome = "nosign"; }
       if ((l.v || 0) < 5 && l.v !== undefined) {
         l.channel = OLD_CHANNEL[l.channel] || (CHANNELS.includes(l.channel) ? l.channel : "");
         l.scheduleAppt = l.scheduleAppt || (l.trialDate ? "Yes" : "TBC");
@@ -735,7 +762,7 @@
     } else if (mode === "outcome") {
       const mins = l.checkOut ? Math.round((l.checkOut - l.checkIn) / 60000) : 0;
       body = `<p class="small muted">Trial finished${mins ? ` · ${time12(new Date(l.checkIn))}–${time12(new Date(l.checkOut))}` : ""}. How did it go?</p>`;
-      acts = [["signed", "Signed", "btn-primary"], ["nosign", "Didn't sign", ""], ["friends", "With friends, not keen", ""]]
+      acts = [["signed", "Signed", "btn-primary"], ["nosign", "Didn't sign", ""]]
         .map(([o, t, c]) => `<button class="btn btn-sm ${c}" data-act="lead-trial" data-o="${o}" data-id="${l.id}">${t}</button>`);
     } else if (mode === "arriving") {
       body = l.remarks ? `<p class="small remarks">${esc(l.remarks)}</p>` : "";
@@ -866,7 +893,6 @@
           </div>
           <h3 style-top>Why they didn't sign</h3>
           ${st.reasons.length ? `<ul class="plain small">${st.reasons.map(([r, c]) => `<li>${esc(r)}: <b>${c}</b></li>`).join("")}</ul>` : `<p class="small muted">Pick a reason under "Why not?" on a card and it's counted here.</p>`}
-          <p class="small muted" style-top>${pendingBadge("CONFIRM #6")} Follow-up timings follow handbook 4.6.</p>
         </section>
       </div>
       ${done.length ? `<section class="card" style-top><details><summary>Finished or closed (${done.length})</summary>
@@ -880,15 +906,17 @@
     const type = D.customerTypes.find((t) => t.id === d.type) || D.customerTypes[0];
     const isNew = !d.id;
     const showTrial = isNew ? type.trial : true;
+    const walkIn = isNew && type.checkIn; // dates are filled in when they're added
     const f = (k, label, type2 = "text", extra = "") => `<label class="field">${label}<input type="${type2}" data-ld="${k}" value="${esc(d[k] || "")}" ${extra}></label>`;
     const preview = { ...d, remarks: d.remarks };
     return `<section class="card editor" id="lead-editor">
       <div class="card-head"><h2>${isNew ? "New prospect" : "Edit " + esc(d.name)}</h2><button class="btn btn-sm btn-ghost" data-act="ld-cancel" aria-label="Close">✕</button></div>
+      ${isNew && walkIn ? `<p class="small muted" style-top>Date of enquiry, trial date and trial time are set to now, and they're checked in.</p>` : ""}
       ${isNew ? `<div class="type-pick" role="radiogroup" aria-label="How did they come in?">${D.customerTypes.map((t) => `<button role="radio" aria-checked="${t.id === type.id}" data-act="ld-type" data-id="${t.id}">${esc(t.label)}</button>`).join("")}</div>` : ""}
       <div class="fields" style-top>
         ${f("name", "Name", "text", 'autocomplete="off" maxlength="60"')}
         ${f("phone", "Contact number", "tel", 'autocomplete="off" placeholder="9123 4567"')}
-        ${f("enquiryDate", "Date of enquiry", "date")}
+        ${walkIn ? "" : f("enquiryDate", "Date of enquiry", "date")}
         <label class="field">How did they find out about us<select data-ld="channel"><option value="">Not set</option>${[...CHANNELS, ...(d.channel && !CHANNELS.includes(d.channel) ? [d.channel] : [])].map((c) => `<option ${d.channel === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
         <label class="field">Schedule for Appt<select data-ld="scheduleAppt">${D.apptOptions.map((c) => `<option ${(d.scheduleAppt || "TBC") === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>
         ${showTrial ? f("trialDate", "Trial date", "date") + f("trialTime", "Trial time", "time") : ""}
@@ -941,7 +969,8 @@
     const type = D.customerTypes.find((t) => t.id === d.type);
     const l = { id: uid(), v: 5, type: type.id, created: todayStr(), history: [], followedUp: "" };
     fields.forEach((k) => { if (k in d) l[k] = d[k]; });
-    if (!type.trial && !type.checkIn) { l.trialDate = ""; l.trialTime = ""; }
+    if (!type.trial) { l.trialDate = ""; l.trialTime = ""; }
+    if (type.checkIn) l.enquiryDate = todayStr(); // trial date and time are set by check-in below
     const anchor = { enquiry: l.enquiryDate, trial: l.trialDate || todayStr(), nosign: l.trialDate, friends: l.trialDate, member: type.id === "trial-signed" ? (l.trialDate || todayStr()) : l.enquiryDate }[type.journey] || todayStr();
     startJourney(l, type.journey, anchor, type.label);
     if (type.id === "trial-signed") { l.trialOutcome = "signed"; }
@@ -1405,10 +1434,13 @@
         const days = dayDiff(st, en) + 1;
         if (days <= 0) out.push(`<div class="notice bad">The end date is before the start date.</div>`);
         else {
-          const weeks = S.settings.partialWeeks === "down" ? Math.max(1, Math.floor(days / 7)) : Math.ceil(days / 7);
-          const fee = weeks * D.fees.freezePerWeek;
+          const pw = S.settings.partialWeeks;
+          const weeks = pw === "down" ? Math.max(1, Math.floor(days / 7)) : pw === "up" ? Math.ceil(days / 7) : Math.round((days / 7) * 100) / 100;
+          const fee = Math.round(weeks * D.fees.freezePerWeek * 100) / 100;
           if (earliest && st < earliest) out.push(`<div class="notice warn">Start date is earlier than ${longDate(earliest)}. Check the notice period.</div>`);
-          if (days % 7) out.push(`<div class="notice warn">${days} days is not a whole number of weeks. Partial weeks are being rounded ${S.settings.partialWeeks === "down" ? "down" : "up"} (change in Settings once the manager confirms the rule).</div>`);
+          if (days % 7) out.push(pw === "up" || pw === "down"
+            ? `<div class="notice warn">${days} days isn't a whole number of weeks, so it's rounded ${pw} to ${weeks} week${weeks > 1 ? "s" : ""} (change this in Settings).</div>`
+            : `<p class="small muted">${days} days ÷ 7 = ${weeks} weeks, charged at ${money(D.fees.freezePerWeek)} per week (1 week = 7 days, set in Settings).</p>`);
           out.push(`<div class="stats"><div class="stat"><b>${days}</b><span>days</span></div><div class="stat"><b>${weeks}</b><span>weeks charged</span></div><div class="stat"><b>${money(fee)}</b><span>freeze fee</span></div></div>`);
           const name = C("fz_member") || "[Member Name]";
           const email = `Subject: Membership Freeze Request
@@ -1469,7 +1501,7 @@ Please note that club access will be temporarily suspended during the freeze per
         const month = MONTHS[last.getMonth()];
         const name = C("cn_member") || "[Member Name]";
         out.push(`<div class="stats"><div class="stat"><b>${active}</b><span>active days in ${month}</span></div><div class="stat"><b>÷ ${div}</b><span>${div === 30 ? "30-day rule" : "days in month"}</span></div><div class="stat"><b>${money(amt)}</b><span>prorated charge</span></div></div>
-          <p class="small muted">${money(fee)} ÷ ${div} × ${active} = ${money(amt)}. The divisor is set in Settings ${pendingBadge("CONFIRM #2")}</p>`);
+          <p class="small muted">${money(fee)} ÷ ${div} × ${active} = ${money(amt)}. The divisor is set in Settings.</p>`);
         const head = `Subject: Membership Cancellation Notice
 
 Dear ${name},
@@ -1769,6 +1801,7 @@ Should your circumstances change, we would be delighted to welcome you back in t
         </section>
         <section class="card stack">
           <div class="card-head"><h2>2 · Private AI (runs on this computer)</h2><span class="badge" id="ai-status">checking…</span></div>
+          <div class="row" id="ai-fix"></div>
           <p class="small muted">Uses <b>Ollama</b>, a free app that runs an AI model on this computer with no internet connection needed. See the README for the one-time setup.</p>
           <div class="row"><label class="btn btn-sm" for="hb-file">Load handbook (.txt or .md)</label><input type="file" id="hb-file" accept=".txt,.md,text/plain" hidden>
             <span class="small muted">${hb ? `Handbook loaded · ${Math.round(hb.length / 1000)}k characters` : "No handbook loaded: answers use only the rates, scripts and checklists built into this hub."}</span>
@@ -1792,17 +1825,27 @@ Should your circumstances change, we would be delighted to welcome you back in t
     updateRedact.last = out;
   }
 
+  // The exact name of the installed model to use, e.g. "gpt-oss:20b" when
+  // Settings says "gpt-oss". Found when the Ask tab checks Ollama.
+  let aiModel = "";
   async function checkAI() {
     const el = document.getElementById("ai-status");
     if (!el) return;
+    const fix = document.getElementById("ai-fix");
+    if (fix) fix.innerHTML = "";
     try {
       const r = await fetch(S.settings.ollamaUrl.replace(/\/$/, "") + "/api/tags");
       const j = await r.json();
       const names = (j.models || []).map((m) => m.name);
-      const ok = names.some((n) => n === S.settings.model || n.split(":")[0] === S.settings.model.split(":")[0]);
-      el.textContent = ok ? `ready · ${S.settings.model}` : `model ${S.settings.model} not installed`;
-      el.className = "badge " + (ok ? "ok" : "pending");
+      const want = (S.settings.model || "").trim();
+      aiModel = names.find((n) => n === want) || names.find((n) => n === want + ":latest") || names.find((n) => n.split(":")[0] === want.split(":")[0]) || "";
+      if (aiModel) { el.textContent = `ready · ${aiModel}`; el.className = "badge ok"; return; }
+      el.textContent = names.length ? `model ${want} not installed` : "no models installed";
+      el.className = "badge pending";
+      if (fix && names.length) fix.innerHTML = `<span class="small muted">You have:</span> ${names.map((n) => `<button class="btn btn-sm" data-act="ai-use" data-id="${esc(n)}">Use ${esc(n)}</button>`).join(" ")}`;
+      else if (fix) fix.innerHTML = `<span class="small muted">In Command Prompt run <code>ollama pull ${esc(want || "llama3.1:8b")}</code>, then come back to this tab.</span>`;
     } catch {
+      aiModel = "";
       el.textContent = "not running";
       el.className = "badge bad";
     }
@@ -1815,7 +1858,7 @@ Should your circumstances change, we would be delighted to welcome you back in t
     k.push("Membership rates: " + D.rates.map((r) => `${r.label} $${r.monthly}/month${r.enrolmentWaived ? " (enrolment fee waived)" : ""}`).join("; ") + ".");
     k.push(`Fees: enrolment $${D.fees.enrolment}, access pass $${D.fees.accessPass}, freeze $${D.fees.freezePerWeek}/week, late payment $${D.fees.latePayment}. 30 days notice for freezes and cancellations.`);
     k.push("Bundles: " + D.bundles.map((b) => `${b.label} ${b.discount * 100}% off 12 or 18 month rate, enrolment waived, access pass still applies`).join("; ") + ".");
-    k.push("Shift checklists:\n" + D.shifts.map((s) => `${s.label}: ` + s.items.map((i) => i.text + (i.due ? ` (by ${i.due})` : "")).join("; ")).join("\n"));
+    k.push("Shift checklists:\n" + shifts().map((s) => `${s.label}: ` + s.items.map((i) => i.text + (i.due ? ` (by ${i.due})` : "")).join("; ")).join("\n"));
     k.push("Cleanliness standard: " + D.cleanStandard.join("; ") + ".");
     k.push("Follow-up journeys (day counted from the anchor date):\n" + journeys().map((j) => `${j.label} (from ${j.anchor}): ` + j.steps.map((s) => `day ${s.d}: ${s.action}${s.script ? " (" + s.script + ")" : ""}`).join("; ")).join("\n"));
     k.push(`Monthly dues: payments are collected on the ${D.dues.collectDay}st at 00:00. Unpaid (yellow) members are chased until the ${D.dues.deadlineDay}th at 00:00. EZpay makes a second deduction at 00:00 on the ${D.dues.deadlineDay}th; if that fails a $${D.fees.latePayment} late fee is added.`);
@@ -1832,7 +1875,7 @@ Should your circumstances change, we would be delighted to welcome you back in t
         <div class="row" style-top><button class="btn" data-act="ai-redact">Replace them for me</button></div>`;
       return;
     }
-    out.innerHTML = `<p class="muted">Thinking… (the first answer can take a minute while the model loads)</p>`;
+    out.innerHTML = `<p class="muted">Thinking… (the first answer can take a minute while the model loads${/^gpt-oss/i.test(aiModel || S.settings.model) ? "; gpt-oss is a large model, so give it a little longer" : ""})</p>`;
     const system = `You are the ${club().code} Shift Hub assistant for front desk staff at ${club().name} in Singapore.
 Answer ONLY from the reference material below. If the answer is not in it, say "The handbook doesn't cover this. Ask the escalation contact." Never invent prices, fees, dates, promotions or policies.
 Where the material says [CONFIRM #n], tell the staff member that the rule is still being confirmed by the manager.
@@ -1845,11 +1888,16 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
       const r = await fetch(S.settings.ollamaUrl.replace(/\/$/, "") + "/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: S.settings.model, stream: false, options: { temperature: 0.2, num_ctx: 16384 }, messages: [{ role: "system", content: system }, { role: "user", content: q }] }),
+        body: JSON.stringify(Object.assign(
+          { model: aiModel || S.settings.model, stream: false, options: { temperature: 0.2, num_ctx: 16384 }, messages: [{ role: "system", content: system }, { role: "user", content: q }] },
+          // gpt-oss reasons before it answers; keep that short so replies come back faster.
+          /^gpt-oss/i.test(aiModel || S.settings.model) ? { think: "low" } : {})),
       });
       if (!r.ok) throw new Error((await r.text()) || r.status);
       const j = await r.json();
-      out.innerHTML = `<pre class="out">${esc(j.message?.content || "(no answer)")}</pre>`;
+      const answer = (j.message && j.message.content || "").trim();
+      out.innerHTML = answer ? `<pre class="out">${esc(answer)}</pre>`
+        : `<div class="notice warn">The model didn't give an answer this time. Try asking again, or more simply.</div>`;
     } catch (e) {
       out.innerHTML = `<div class="notice bad">Couldn't reach the local AI at ${esc(S.settings.ollamaUrl)}. Is Ollama running, and was it started with this page allowed? See the README. <br><span class="small">${esc(e.message || e)}</span></div>`;
     }
@@ -1872,7 +1920,7 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
           <p class="small muted">Already-edited scripts that name another outlet need editing by hand.</p>
         </section>
         <section class="card stack"><h2>Rules still being confirmed</h2>
-          <label class="field">Freeze: partial weeks ${pendingBadge("CONFIRM #4")}${sel("partialWeeks", [["up", "Round up (10 days = 2 weeks)"], ["down", "Round down (10 days = 1 week)"]])}</label>
+          <label class="field">Freeze: partial weeks ${pendingBadge("CONFIRM #4")}${sel("partialWeeks", [["exact", "1 week = 7 days (10 days = 1.43 weeks)"], ["up", "Round up (10 days = 2 weeks)"], ["down", "Round down (10 days = 1 week)"]])}</label>
           <label class="field">Cancellation: prorata divisor ${pendingBadge("CONFIRM #2")}${sel("divisor", [["30", "Always 30 days"], ["month", "Days in that month"]])}</label>
         </section>
         <section class="card stack"><h2>Private AI</h2>
@@ -1900,6 +1948,19 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
         if (b.checked) d.done[id] = hhmm(new Date()); else delete d.done[id];
         save(); render(); break;
       case "shift": d.shift = id; save(); render(); break;
+      case "cl-edit": S.ui.editChecklist = !S.ui.editChecklist; save(); render(); break;
+      case "cl-up": case "cl-down": case "cl-del": case "cl-add": {
+        const sh = editableShifts().find((s) => s.id === d.shift) || editableShifts()[0];
+        const k = Number(b.dataset.i);
+        if (act === "cl-up" && k > 0) [sh.items[k - 1], sh.items[k]] = [sh.items[k], sh.items[k - 1]];
+        if (act === "cl-down" && k < sh.items.length - 1) [sh.items[k + 1], sh.items[k]] = [sh.items[k], sh.items[k + 1]];
+        if (act === "cl-del" && confirm(`Remove "${sh.items[k].text}" from the ${sh.label} checklist?`)) sh.items.splice(k, 1);
+        if (act === "cl-add") sh.items.push({ id: "c" + uid(), text: "New to-do" });
+        save(); render();
+        if (act === "cl-add") { const inputs = document.querySelectorAll('[data-cl="text"]'); const last = inputs[inputs.length - 1]; if (last) { last.focus(); last.select(); } }
+        break;
+      }
+      case "cl-reset": if (confirm("Put every shift checklist back to the default to-dos?")) { S.shifts = null; save(); render(); } break;
       case "reset-day": if (confirm("Clear today's ticks and notes?")) { S.days[todayStr()] = null; delete S.days[todayStr()]; day(); save(); render(); } break;
       case "copy-handover": case "handover-copy-alt": copy(handoverText(), "Handover copied"); break;
       case "eod-copy": copy(eodText(), "EOD report copied. Paste it into Discord"); break;
@@ -2070,6 +2131,7 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
 
       case "copy-redacted": copy(updateRedact.last || "", "Safe version copied"); break;
       case "ai-ask": askAI(); break;
+      case "ai-use": S.settings.model = id; save(); checkAI(); toast(`Using ${id}`); break;
       case "ai-redact": { S.calc.ai_q = redact(S.calc.ai_q || "").out; save(); document.getElementById("ai-q").value = S.calc.ai_q; document.getElementById("ai-out").innerHTML = ""; break; }
       case "hb-clear": S.handbook = ""; save(); render(); checkAI(); break;
 
@@ -2115,6 +2177,14 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
     const t = e.target;
     if (t.dataset.note !== undefined) { day().notes[t.dataset.note] = t.value; save(); return; }
     if (t.dataset.handover !== undefined) { day().handover = t.value; save(); return; }
+    if (t.dataset.cl) {
+      const sh = editableShifts().find((s) => s.id === day().shift) || editableShifts()[0];
+      const it = sh.items[Number(t.dataset.i)];
+      if (t.dataset.cl === "photo") it.photo = t.checked;
+      else if (t.dataset.cl === "due") { if (t.value) it.due = t.value; else delete it.due; }
+      else it.text = t.value;
+      save(); return;
+    }
     if (t.dataset.eod) {
       const e = eodDay(); e.f[t.dataset.eod] = t.value; save();
       if (t.dataset.auto) { const bd = document.querySelector(`[data-badge="${t.dataset.eod}"]`); if (bd) bd.innerHTML = eodBadge(t.dataset.eod, t.value !== ""); }
