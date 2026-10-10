@@ -1107,11 +1107,8 @@
     const e = eodDay(), a = eodAuto();
     const numField = ([label, key, kind]) => {
       const typed = e.f[key] !== undefined && e.f[key] !== "";
-      if (kind === "count") {
-        return `<div class="eod-f"><span class="eod-l">${esc(label)}</span><div class="row tight eod-count">
-          <button class="btn btn-sm" data-act="eod-dec" data-id="${key}" aria-label="One less">−</button>
-          <input type="number" min="0" data-eod="${key}" value="${esc(eodVal(key, kind, e, a))}" aria-label="${esc(label)}">
-          <button class="btn btn-sm" data-act="eod-inc" data-id="${key}" aria-label="One more">+</button></div></div>`;
+      if (kind === "count") { // typed in like the rest; blank counts as 0 in the report
+        return `<div class="eod-f"><span class="eod-l">${esc(label)}</span><input type="number" min="0" data-eod="${key}" value="${esc(e.f[key] || "")}" placeholder="0" aria-label="${esc(label)}"></div>`;
       }
       if (kind === "auto") {
         return `<div class="eod-f"><span class="eod-l">${esc(label)} <span class="eod-badge" data-badge="${key}">${eodBadge(key, typed)}</span></span>
@@ -1124,7 +1121,7 @@
     const prev = Object.keys(S.eod).filter((k) => k < todayStr()).sort().pop();
     return `<section class="card stack" id="eod-card">
       <div class="card-head"><h2>EOD report</h2><button class="btn btn-primary" data-act="eod-copy">Copy EOD report</button></div>
-      <p class="small muted">Lines marked <span class="badge ok">auto</span> are counted from Prospect &amp; Trial. Type over any of them if the hub missed something. Use + and − during the shift for renewals and PT.</p>
+      <p class="small muted">Lines marked <span class="badge ok">auto</span> are counted from Prospect &amp; Trial. Type over any of them if the hub missed something.</p>
       <label class="field">Closing Petty Cash<input type="text" data-eod="pettyCash" value="${esc(e.f.pettyCash || "")}" placeholder="e.g. $200.00 (no variance)"></label>
       <h3>Today's numbers</h3>
       <div class="eod-grid">${EOD_LINES.map(numField).join("")}</div>
@@ -1964,12 +1961,6 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
       case "reset-day": if (confirm("Clear today's ticks and notes?")) { S.days[todayStr()] = null; delete S.days[todayStr()]; day(); save(); render(); } break;
       case "copy-handover": case "handover-copy-alt": copy(handoverText(), "Handover copied"); break;
       case "eod-copy": copy(eodText(), "EOD report copied. Paste it into Discord"); break;
-      case "eod-inc": case "eod-dec": {
-        const e = eodDay(); const n = Math.max(0, (Number(e.f[id]) || 0) + (act === "eod-inc" ? 1 : -1));
-        e.f[id] = String(n); save();
-        const el = document.querySelector(`[data-eod="${id}"]`); if (el) el.value = n;
-        updateEodPreview(); break;
-      }
       case "eod-reset": { delete eodDay().f[id]; save(); render(); break; }
       case "prev-toggle": S.ui.prevHidden = Object.assign({}, S.ui.prevHidden, { [id]: !prevHidden(id) }); save(); render(); break;
       case "dues-row": { const m = duesList().find((x) => x.id === id); copy(duesCells(m).join("\t"), `${m.name}'s row copied`); break; }
