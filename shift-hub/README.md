@@ -90,6 +90,8 @@ Use **Settings → Export backup** now and then. Clearing the browser's data wip
 3. Save the Staff Handbook from Word as **Plain Text (.txt)** and load it under **Ask & Redact → Load handbook**.
 4. Tell Ollama it may answer the hub. On Windows, open **Command Prompt** and run `setx OLLAMA_ORIGINS "https://darylhui.github.io"` (or `setx OLLAMA_ORIGINS "*"` if you open the hub as a file). Then quit Ollama from the system tray (right-click the llama icon → **Quit Ollama**) and start it again from the Start menu.
 
+Already have a different model, like **gpt-oss**? Use that instead: the Ask & Redact tab lists the models you have and **Use …** picks one. gpt-oss:20b needs about 16 GB of memory; the hub asks it to keep its reasoning short so answers come back faster.
+
 An 8B model needs about 8 GB of free RAM and answers in a few seconds to a minute, depending on the computer. It's slower and less accurate than NotebookLM, so treat it as the option for questions that involve member situations. Always check fees and dates against the handbook.
 
 ## New draft scripts

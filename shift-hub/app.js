@@ -1769,6 +1769,7 @@ Should your circumstances change, we would be delighted to welcome you back in t
         </section>
         <section class="card stack">
           <div class="card-head"><h2>2 · Private AI (runs on this computer)</h2><span class="badge" id="ai-status">checking…</span></div>
+          <div class="row" id="ai-fix"></div>
           <p class="small muted">Uses <b>Ollama</b>, a free app that runs an AI model on this computer with no internet connection needed. See the README for the one-time setup.</p>
           <div class="row"><label class="btn btn-sm" for="hb-file">Load handbook (.txt or .md)</label><input type="file" id="hb-file" accept=".txt,.md,text/plain" hidden>
             <span class="small muted">${hb ? `Handbook loaded · ${Math.round(hb.length / 1000)}k characters` : "No handbook loaded: answers use only the rates, scripts and checklists built into this hub."}</span>
@@ -1792,17 +1793,27 @@ Should your circumstances change, we would be delighted to welcome you back in t
     updateRedact.last = out;
   }
 
+  // The exact name of the installed model to use, e.g. "gpt-oss:20b" when
+  // Settings says "gpt-oss". Found when the Ask tab checks Ollama.
+  let aiModel = "";
   async function checkAI() {
     const el = document.getElementById("ai-status");
     if (!el) return;
+    const fix = document.getElementById("ai-fix");
+    if (fix) fix.innerHTML = "";
     try {
       const r = await fetch(S.settings.ollamaUrl.replace(/\/$/, "") + "/api/tags");
       const j = await r.json();
       const names = (j.models || []).map((m) => m.name);
-      const ok = names.some((n) => n === S.settings.model || n.split(":")[0] === S.settings.model.split(":")[0]);
-      el.textContent = ok ? `ready · ${S.settings.model}` : `model ${S.settings.model} not installed`;
-      el.className = "badge " + (ok ? "ok" : "pending");
+      const want = (S.settings.model || "").trim();
+      aiModel = names.find((n) => n === want) || names.find((n) => n === want + ":latest") || names.find((n) => n.split(":")[0] === want.split(":")[0]) || "";
+      if (aiModel) { el.textContent = `ready · ${aiModel}`; el.className = "badge ok"; return; }
+      el.textContent = names.length ? `model ${want} not installed` : "no models installed";
+      el.className = "badge pending";
+      if (fix && names.length) fix.innerHTML = `<span class="small muted">You have:</span> ${names.map((n) => `<button class="btn btn-sm" data-act="ai-use" data-id="${esc(n)}">Use ${esc(n)}</button>`).join(" ")}`;
+      else if (fix) fix.innerHTML = `<span class="small muted">In Command Prompt run <code>ollama pull ${esc(want || "llama3.1:8b")}</code>, then come back to this tab.</span>`;
     } catch {
+      aiModel = "";
       el.textContent = "not running";
       el.className = "badge bad";
     }
@@ -1832,7 +1843,7 @@ Should your circumstances change, we would be delighted to welcome you back in t
         <div class="row" style-top><button class="btn" data-act="ai-redact">Replace them for me</button></div>`;
       return;
     }
-    out.innerHTML = `<p class="muted">Thinking… (the first answer can take a minute while the model loads)</p>`;
+    out.innerHTML = `<p class="muted">Thinking… (the first answer can take a minute while the model loads${/^gpt-oss/i.test(aiModel || S.settings.model) ? "; gpt-oss is a large model, so give it a little longer" : ""})</p>`;
     const system = `You are the ${club().code} Shift Hub assistant for front desk staff at ${club().name} in Singapore.
 Answer ONLY from the reference material below. If the answer is not in it, say "The handbook doesn't cover this. Ask the escalation contact." Never invent prices, fees, dates, promotions or policies.
 Where the material says [CONFIRM #n], tell the staff member that the rule is still being confirmed by the manager.
@@ -1845,11 +1856,16 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
       const r = await fetch(S.settings.ollamaUrl.replace(/\/$/, "") + "/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: S.settings.model, stream: false, options: { temperature: 0.2, num_ctx: 16384 }, messages: [{ role: "system", content: system }, { role: "user", content: q }] }),
+        body: JSON.stringify(Object.assign(
+          { model: aiModel || S.settings.model, stream: false, options: { temperature: 0.2, num_ctx: 16384 }, messages: [{ role: "system", content: system }, { role: "user", content: q }] },
+          // gpt-oss reasons before it answers; keep that short so replies come back faster.
+          /^gpt-oss/i.test(aiModel || S.settings.model) ? { think: "low" } : {})),
       });
       if (!r.ok) throw new Error((await r.text()) || r.status);
       const j = await r.json();
-      out.innerHTML = `<pre class="out">${esc(j.message?.content || "(no answer)")}</pre>`;
+      const answer = (j.message && j.message.content || "").trim();
+      out.innerHTML = answer ? `<pre class="out">${esc(answer)}</pre>`
+        : `<div class="notice warn">The model didn't give an answer this time. Try asking again, or more simply.</div>`;
     } catch (e) {
       out.innerHTML = `<div class="notice bad">Couldn't reach the local AI at ${esc(S.settings.ollamaUrl)}. Is Ollama running, and was it started with this page allowed? See the README. <br><span class="small">${esc(e.message || e)}</span></div>`;
     }
@@ -2070,6 +2086,7 @@ ${S.handbook ? "\n=== STAFF HANDBOOK ===\n" + S.handbook.slice(0, 60000) : ""}`;
 
       case "copy-redacted": copy(updateRedact.last || "", "Safe version copied"); break;
       case "ai-ask": askAI(); break;
+      case "ai-use": S.settings.model = id; save(); checkAI(); toast(`Using ${id}`); break;
       case "ai-redact": { S.calc.ai_q = redact(S.calc.ai_q || "").out; save(); document.getElementById("ai-q").value = S.calc.ai_q; document.getElementById("ai-out").innerHTML = ""; break; }
       case "hb-clear": S.handbook = ""; save(); render(); checkAI(); break;
 
